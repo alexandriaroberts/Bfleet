@@ -167,9 +167,11 @@ export default function Home() {
               </div>
 
               <h1 className='text-4xl md:text-6xl font-bold mb-6 leading-tight text-gray-900'>
-                Package Delivery,
+                Move Packages,
+                <br />
+                Build Reputation.
                 <span className='block bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-transparent bg-clip-text'>
-                  Reimagined
+                  Stack Sats.
                 </span>
               </h1>
 

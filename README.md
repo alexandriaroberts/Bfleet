@@ -1,37 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bfleet - Decentralized Package Delivery
+
+Bfleet is a decentralized package delivery platform built on Nostr technology that connects people who need packages delivered with those who can deliver them.
+
+This project was developed in response to the [A to B Dev Fund Bounty](https://github.com/ssmithx/atob/blob/main/bounty.txt).
+
+## MVP Features
+
+- **Post Package**: Create delivery requests with pickup location, destination, and payment amount
+- **View Packages**: Browse available packages on an interactive map
+- **Package Pickup**: Couriers can acknowledge package pickup
+- **Delivery Confirmation**: Recipients can confirm delivery and release payment
+
+## Technologies
+
+- Next.js (App Router)
+- Tailwind CSS
+- Nostr Protocol
+- Leaflet Maps
+- Progressive Web App (PWA)
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 18+ and npm/yarn
+- A Nostr key pair (for development, a test key is provided)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Installation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repository
+   \`\`\`bash
+   git clone https://github.com/yourusername/bfleet.git
+   cd bfleet
+   \`\`\`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. Install dependencies
+   \`\`\`bash
+   npm install
 
-## Learn More
+   # or
 
-To learn more about Next.js, take a look at the following resources:
+   yarn install
+   \`\`\`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Start the development server
+   \`\`\`bash
+   npm run dev
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   # or
 
-## Deploy on Vercel
+   yarn dev
+   \`\`\`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# Bfleet
+## Usage
+
+### Posting a Package
+
+1. Click "Post a Package" on the homepage
+2. Fill in the package details (title, pickup location, destination, cost)
+3. Submit the form
+
+### Viewing Available Packages
+
+1. Click "View Map" on the homepage
+2. Browse packages displayed on the interactive map
+3. Click on a package marker to view details
+
+### Picking Up a Package
+
+1. Navigate to the package details
+2. Click "Pick Up Package"
+3. The package will be added to your deliveries
+
+### Confirming Delivery
+
+1. When a package is delivered, the recipient scans the QR code
+2. The recipient confirms delivery in the app
+3. Payment is released to the courier
+
+## Development Notes
+
+- The app uses a mock Nostr implementation for development
+- For production, implement proper key management and authentication
+
+## License
+
+MIT

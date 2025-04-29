@@ -70,10 +70,12 @@ export default function PostPackage() {
         Back to Home
       </Link>
 
-      <Card className='max-w-2xl mx-auto'>
-        <CardHeader>
-          <CardTitle className='flex items-center'>
-            <Package className='mr-2 h-5 w-5' />
+      <Card className='max-w-2xl mx-auto border border-gray-100 shadow-lg overflow-hidden'>
+        <CardHeader className='bg-gradient-to-r from-[#F8FAFC] to-[#F1F5F9] border-b border-gray-100'>
+          <CardTitle className='flex items-center text-gray-900'>
+            <div className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] rounded-full p-2 mr-2'>
+              <Package className='h-5 w-5 text-white' />
+            </div>
             Post a Package
           </CardTitle>
           <CardDescription>
@@ -81,7 +83,7 @@ export default function PostPackage() {
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
-          <CardContent className='space-y-4'>
+          <CardContent className='space-y-6 pt-6'>
             <div className='space-y-2'>
               <Label htmlFor='title'>Package Title</Label>
               <Input
@@ -143,8 +145,20 @@ export default function PostPackage() {
               />
             </div>
           </CardContent>
-          <CardFooter>
-            <Button type='submit' className='w-full' disabled={isSubmitting}>
+          <CardFooter className='flex flex-col sm:flex-row gap-4 p-6'>
+            <Button
+              type='button'
+              variant='outline'
+              className='w-full border border-gray-200 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+              onClick={() => router.push('/')}
+            >
+              Cancel
+            </Button>
+            <Button
+              type='submit'
+              className='w-full bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white font-medium hover:shadow-glow-orange transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+              disabled={isSubmitting}
+            >
               {isSubmitting ? 'Posting...' : 'Post Package'}
             </Button>
           </CardFooter>

@@ -385,3 +385,26 @@
   justify-content: center;
   align-items: center;
 }
+
+/* Add these custom hover classes at the end of your globals.css file */
+
+/* Navigation hover colors */
+.hover\:text-\[\#FF7170\]:hover {
+  color: #ff7170 !important;
+}
+
+.hover\:text-\[\#22D3EE\]:hover {
+  color: #22d3ee !important;
+}
+
+.hover\:text-\[\#C084FC\]:hover {
+  color: #c084fc !important;
+}
+
+.hover\:text-\[\#8B5CF6\]:hover {
+  color: #8b5cf6 !important;
+}
+
+.hover\:text-gray-900:hover {
+  color: #111827 !important;
+}

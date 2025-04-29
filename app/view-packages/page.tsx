@@ -160,6 +160,7 @@ export default function ViewPackages() {
                             <div className='font-medium'>{pkg.cost} sats</div>
                             <Button
                               size='sm'
+                              className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handlePickup(pkg.id);

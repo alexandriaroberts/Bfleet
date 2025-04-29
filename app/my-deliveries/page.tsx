@@ -152,6 +152,7 @@ export default function MyDeliveries() {
                               <Button
                                 size='sm'
                                 variant='outline'
+                                className='cursor-pointer'
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedDelivery(delivery);
@@ -162,6 +163,7 @@ export default function MyDeliveries() {
                               </Button>
                               <Button
                                 size='sm'
+                                className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleComplete(delivery.id);

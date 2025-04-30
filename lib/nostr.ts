@@ -30,7 +30,7 @@ const pool = new SimplePool();
 // Use public test relays for development
 const RELAY_URLS = ['wss://relay.damus.io', 'wss://relay.nostr.info'];
 
-// Define event kinds for Bfleet
+// Define event kinds for atob
 const EVENT_KINDS = {
   METADATA: 0,
   PACKAGE_LISTING: 30001,
@@ -157,7 +157,7 @@ export async function getPackages(): Promise<PackageData[]> {
     // const events = await pool.list(RELAY_URLS, [
     //   {
     //     kinds: [EVENT_KINDS.PACKAGE_LISTING],
-    //     '#t': ['bfleet-package']
+    //     '#t': ['atob-package']
     //   }
     // ])
 

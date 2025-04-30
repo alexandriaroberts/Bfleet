@@ -30,8 +30,8 @@ This project was developed in response to the [ A to ₿ Dev Bounty](https://git
 
 1. Clone the repository
    \`\`\`bash
-   git clone https://github.com/yourusername/bfleet.git
-   cd bfleet
+   git clone https://github.com/yourusername/atob.git
+   cd atob
    \`\`\`
 
 2. Install dependencies

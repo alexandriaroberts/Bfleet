@@ -12,6 +12,7 @@ import { ArrowLeft, User, Star, Package, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import { getUserProfile, type ProfileData } from '@/lib/nostr';
 import { toast } from 'sonner';
+import Image from 'next/image';
 
 export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -58,10 +59,12 @@ export default function Profile() {
             <>
               <div className='flex justify-center mb-4'>
                 {profile.picture ? (
-                  <img
-                    src={profile.picture || '/placeholder.svg'}
+                  <Image
+                    src='/placeholder.png'
                     alt={profile.displayName || profile.name || 'User'}
-                    className='w-24 h-24 rounded-full object-cover'
+                    width={96}
+                    height={96}
+                    className='w-24 h-24 rounded-full object-cover centre'
                   />
                 ) : (
                   <div className='w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center'>
@@ -69,7 +72,6 @@ export default function Profile() {
                   </div>
                 )}
               </div>
-
               <div className='text-center'>
                 <h2 className='text-xl font-bold'>
                   {profile.displayName || profile.name || 'Anonymous User'}

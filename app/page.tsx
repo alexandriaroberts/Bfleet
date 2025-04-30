@@ -196,12 +196,13 @@ export default function Home() {
             </div>
           </div>
         </div>
-
-        <div className='absolute top-0 left-[5%] w-[300px] h-[300px] rounded-full bg-[#FF7170] opacity-10 blur-[100px]'></div>
-        <div className='absolute top-[30%] right-0 w-[400px] h-[400px] rounded-full bg-[#22D3EE] opacity-10 blur-[100px]'></div>
-        <div className='absolute bottom-[10%] left-0 w-[350px] h-[350px] rounded-full bg-[#C084FC] opacity-10 blur-[100px]'></div>
-        <div className='absolute top-[15%] right-[20%] w-[350px] h-[350px] rounded-full bg-[#8B5CF6] opacity-10 blur-[100px]'></div>
-
+        \
+        <div className='absolute top-0 left-[5%] md:left-[2%] lg:left-[5%] w-[250px] md:w-[280px] lg:w-[300px] h-[250px] md:h-[280px] lg:h-[300px] rounded-full bg-[#FF7170] opacity-10 md:opacity-8 lg:opacity-10 blur-[80px] md:blur-[90px] lg:blur-[100px]'></div>
+        <div className='absolute top-[30%] right-0 md:right-[-5%] lg:right-0 w-[300px] md:w-[350px] lg:w-[400px] h-[300px] md:h-[350px] lg:h-[400px] rounded-full bg-[#22D3EE] opacity-10 md:opacity-8 lg:opacity-10 blur-[80px] md:blur-[90px] lg:blur-[100px]'></div>
+        <div className='absolute bottom-[10%] left-0 md:left-[-5%] lg:left-0 w-[250px] md:w-[300px] lg:w-[350px] h-[250px] md:h-[300px] lg:h-[350px] rounded-full bg-[#C084FC] opacity-10 md:opacity-8 lg:opacity-10 blur-[80px] md:blur-[90px] lg:blur-[100px]'></div>
+        <div className='absolute top-[15%] right-[20%] md:right-[15%] lg:right-[20%] w-[250px] md:w-[300px] lg:w-[350px] h-[250px] md:h-[300px] lg:h-[350px] rounded-full bg-[#8B5CF6] opacity-10 md:opacity-8 lg:opacity-10 blur-[80px] md:blur-[90px] lg:blur-[100px]'></div>
+        {/* Additional orb for medium screens to fill potential gaps */}
+        <div className='hidden md:block lg:hidden absolute top-[60%] right-[40%] w-[280px] h-[280px] rounded-full bg-[#FF7170] opacity-8 blur-[90px]'></div>
         {/* Hero Image - Hidden on mobile, positioned behind content on desktop */}
         <div className='hidden md:block absolute right-0 top-0 w-[65%] h-full z-10 overflow-hidden'>
           <div className='absolute inset-0 bg-gradient-to-l from-transparent to-white w-[30%] z-10'></div>

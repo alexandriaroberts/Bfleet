@@ -76,7 +76,7 @@ export default function Home() {
             <div className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] rounded-full p-2'>
               <Package className='h-5 w-5 text-white' />
             </div>
-            <span className='font-bold text-xl text-gray-900'>Bfleet</span>
+            <span className='font-bold text-xl text-gray-900'>A to ₿</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -169,14 +169,14 @@ export default function Home() {
               <h1 className='text-4xl md:text-6xl font-bold mb-6 leading-tight text-gray-900'>
                 Move Packages,
                 <br />
-                Build Reputation.
+                Build Reputation,
                 <span className='block bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-transparent bg-clip-text'>
                   Stack Sats.
                 </span>
               </h1>
 
               <p className='text-lg text-gray-600 mb-8 max-w-lg'>
-                Bfleet connects people who need packages delivered with those
+                A to ₿ connects people who need packages delivered with those
                 who can deliver them, all powered by Nostr and Bitcoin
                 technology.
               </p>
@@ -419,7 +419,7 @@ export default function Home() {
               <div className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] rounded-full p-2'>
                 <Package className='h-5 w-5 text-white' />
               </div>
-              <span className='font-bold text-xl text-gray-900'>Bfleet</span>
+              <span className='font-bold text-xl text-gray-900'>A to ₿</span>
             </div>
 
             {/* <div className='flex gap-4'>

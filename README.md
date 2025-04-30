@@ -1,8 +1,8 @@
-# Bfleet - Decentralized Package Delivery
+# A to ₿ - Decentralized Package Delivery
 
-Bfleet is a decentralized package delivery platform built on Nostr technology that connects people who need packages delivered with those who can deliver them.
+A to ₿ is a decentralized package delivery platform built on Nostr technology that connects people who need packages delivered with those who can deliver them.
 
-This project was developed in response to the [A to B Dev Fund Bounty](https://github.com/ssmithx/atob/blob/main/bounty.txt).
+This project was developed in response to the [ A to ₿ Dev Bounty](https://github.com/ssmithx/atob/blob/main/bounty.txt).
 
 ## MVP Features
 

@@ -8,7 +8,7 @@ import Script from 'next/script';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Bfleet - Package Delivery',
+  title: 'A to ₿ - Package Delivery',
   description: 'Decentralized package delivery platform',
   manifest: '/manifest.json',
 };

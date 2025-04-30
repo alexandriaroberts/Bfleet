@@ -91,8 +91,8 @@ const myDeliveries: PackageData[] = [
 // Mock profile data
 const mockProfile: ProfileData = {
   pubkey: 'npub1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-  name: 'bfleet_user',
-  displayName: 'Bfleet Courier',
+  name: 'A to ₿_user',
+  displayName: 'A to ₿ Courier',
   picture: 'https://placekitten.com/200/200',
   followers: 24,
   following: 36,

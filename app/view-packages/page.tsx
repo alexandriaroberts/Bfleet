@@ -1,5 +1,7 @@
 'use client';
 
+import { Badge } from '@/components/ui/badge';
+
 import { useEffect, useState } from 'react';
 import {
   Card,
@@ -10,9 +12,10 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeft, Package } from 'lucide-react';
+import { ArrowLeft, Package, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { getPackages, pickupPackage } from '@/lib/nostr';
+import { useNostr } from '@/components/nostr-provider';
 import dynamic from 'next/dynamic';
 
 // Dynamically import the map component to avoid SSR issues
@@ -31,44 +34,64 @@ interface PackageData {
   cost: string;
   description?: string;
   status: 'available' | 'in_transit' | 'delivered';
+  pubkey?: string;
 }
 
 export default function ViewPackages() {
+  const { isReady, publicKey } = useNostr();
   const [packages, setPackages] = useState<PackageData[]>([]);
   const [selectedPackage, setSelectedPackage] = useState<PackageData | null>(
     null
   );
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchPackages = async () => {
+    try {
+      // Fetch packages from Nostr
+      const pkgs = await getPackages();
+      console.log('Fetched packages:', pkgs);
+      setPackages(pkgs);
+    } catch (error) {
+      toast.error('Error', {
+        description: 'Failed to load packages. Please try again.',
+      });
+      console.error('Error fetching packages:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchPackages = async () => {
-      try {
-        // In a real implementation, this would fetch from your Nostr relay
-        const pkgs = await getPackages();
-        setPackages(pkgs);
-      } catch (error) {
-        toast.error('Error', {
-          description: 'Failed to load packages. Please try again.',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!isReady) return;
 
     fetchPackages();
-  }, []);
+
+    // Set up a refresh interval to periodically check for new packages
+    const refreshInterval = setInterval(() => {
+      fetchPackages();
+    }, 60000); // Refresh every 60 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, [isReady]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchPackages();
+  };
 
   const handlePickup = async (packageId: string) => {
     try {
-      // In a real implementation, this would publish to your Nostr relay
+      // Pick up package using Nostr
       await pickupPackage(packageId);
 
       // Update local state
-      setPackages((prev) =>
-        prev.map((pkg) =>
-          pkg.id === packageId ? { ...pkg, status: 'in_transit' } : pkg
-        )
-      );
+      setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
+
+      if (selectedPackage?.id === packageId) {
+        setSelectedPackage(null);
+      }
 
       toast.success('Package Picked Up', {
         description: 'You have successfully picked up the package.',
@@ -77,8 +100,24 @@ export default function ViewPackages() {
       toast.error('Error', {
         description: 'Failed to pick up package. Please try again.',
       });
+      console.error('Error picking up package:', error);
     }
   };
+
+  const isOwnPackage = (pkg: PackageData) => {
+    return pkg.pubkey === publicKey;
+  };
+
+  if (!isReady) {
+    return (
+      <div className='container mx-auto px-4 py-8'>
+        <div className='flex justify-center items-center h-64'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+          <p className='ml-2'>Loading Nostr...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='container mx-auto px-4 py-8'>
@@ -108,18 +147,32 @@ export default function ViewPackages() {
 
         <div>
           <Card className='h-full'>
-            <CardHeader>
-              <CardTitle className='flex items-center'>
-                <Package className='mr-2 h-5 w-5' />
-                Available Packages
-              </CardTitle>
-              <CardDescription>
-                {loading
-                  ? 'Loading packages...'
-                  : `${
-                      packages.filter((p) => p.status === 'available').length
-                    } packages available`}
-              </CardDescription>
+            <CardHeader className='flex flex-row items-center justify-between'>
+              <div>
+                <CardTitle className='flex items-center'>
+                  <Package className='mr-2 h-5 w-5' />
+                  Available Packages
+                </CardTitle>
+                <CardDescription>
+                  {loading
+                    ? 'Loading packages...'
+                    : `${
+                        packages.filter((p) => p.status === 'available').length
+                      } packages available`}
+                </CardDescription>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefresh}
+                disabled={loading || refreshing}
+                className='flex items-center gap-2'
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
+                />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -134,7 +187,10 @@ export default function ViewPackages() {
               ) : packages.filter((p) => p.status === 'available').length ===
                 0 ? (
                 <div className='text-center py-8 text-gray-500'>
-                  No packages available at the moment
+                  <p>No packages available at the moment</p>
+                  <p className='text-sm mt-2'>
+                    Try posting a package or refreshing the list
+                  </p>
                 </div>
               ) : (
                 <div className='space-y-4'>
@@ -158,16 +214,22 @@ export default function ViewPackages() {
                           </div>
                           <div className='flex justify-between items-center mt-2'>
                             <div className='font-medium'>{pkg.cost} sats</div>
-                            <Button
-                              size='sm'
-                              className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePickup(pkg.id);
-                              }}
-                            >
-                              Pick Up
-                            </Button>
+                            {isOwnPackage(pkg) ? (
+                              <Badge variant='outline' className='text-xs'>
+                                Your Package
+                              </Badge>
+                            ) : (
+                              <Button
+                                size='sm'
+                                className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePickup(pkg.id);
+                                }}
+                              >
+                                Pick Up
+                              </Button>
+                            )}
                           </div>
                         </CardContent>
                       </Card>

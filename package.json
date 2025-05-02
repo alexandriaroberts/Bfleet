@@ -9,8 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@radix-ui/react-dropdown-menu": "^2.1.12",
     "@radix-ui/react-label": "^2.1.4",
     "@radix-ui/react-slot": "^1.2.0",
+    "@radix-ui/react-tabs": "^1.1.9",
+    "@radix-ui/react-tooltip": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.9.2",
@@ -19,6 +22,7 @@
     "lucide-react": "^0.503.0",
     "next": "15.3.1",
     "next-themes": "^0.4.6",
+    "nostr-react": "^0.7.0",
     "nostr-tools": "^2.12.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",

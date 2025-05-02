@@ -9,10 +9,11 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { toast } from 'sonner'; // Changed from useToast
-import { ArrowLeft, CheckCircle, Truck } from 'lucide-react';
+import { toast } from 'sonner';
+import { ArrowLeft, CheckCircle, RefreshCw, Truck } from 'lucide-react';
 import Link from 'next/link';
 import { getMyDeliveries, completeDelivery } from '@/lib/nostr';
+import { useNostr } from '@/components/nostr-provider';
 import { QRCodeSVG } from 'qrcode.react';
 
 interface PackageData {
@@ -26,34 +27,46 @@ interface PackageData {
 }
 
 export default function MyDeliveries() {
+  const { isReady } = useNostr();
   const [deliveries, setDeliveries] = useState<PackageData[]>([]);
   const [selectedDelivery, setSelectedDelivery] = useState<PackageData | null>(
     null
   );
   const [showQR, setShowQR] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchDeliveries = async () => {
+    try {
+      // Fetch deliveries from Nostr
+      const pkgs = await getMyDeliveries();
+      console.log('Fetched deliveries:', pkgs);
+      setDeliveries(pkgs);
+    } catch (error) {
+      toast.error('Error', {
+        description: 'Failed to load deliveries. Please try again.',
+      });
+      console.error('Error fetching deliveries:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchDeliveries = async () => {
-      try {
-        // In a real implementation, this would fetch from your Nostr relay
-        const pkgs = await getMyDeliveries();
-        setDeliveries(pkgs);
-      } catch (error) {
-        toast.error('Error', {
-          description: 'Failed to load deliveries. Please try again.',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!isReady) return;
 
     fetchDeliveries();
-  }, []);
+  }, [isReady]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDeliveries();
+  };
 
   const handleComplete = async (packageId: string) => {
     try {
-      // In a real implementation, this would publish to your Nostr relay
+      // Complete delivery using Nostr
       await completeDelivery(packageId);
 
       // Update local state
@@ -73,13 +86,25 @@ export default function MyDeliveries() {
       toast.error('Error', {
         description: 'Failed to complete delivery. Please try again.',
       });
+      console.error('Error completing delivery:', error);
     }
   };
 
   const generateQRValue = (packageId: string) => {
-    // In a real implementation, this would generate a URL to your confirmation page
+    // Generate a URL to the confirmation page
     return `${window.location.origin}/confirm-delivery?id=${packageId}`;
   };
+
+  if (!isReady) {
+    return (
+      <div className='container mx-auto px-4 py-8'>
+        <div className='flex justify-center items-center h-64'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+          <p className='ml-2'>Loading Nostr...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='container mx-auto px-4 py-8'>
@@ -91,18 +116,33 @@ export default function MyDeliveries() {
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
         <div className='lg:col-span-2'>
           <Card className='h-full'>
-            <CardHeader>
-              <CardTitle className='flex items-center'>
-                <Truck className='mr-2 h-5 w-5' />
-                My Active Deliveries
-              </CardTitle>
-              <CardDescription>
-                {loading
-                  ? 'Loading deliveries...'
-                  : `${
-                      deliveries.filter((d) => d.status === 'in_transit').length
-                    } active deliveries`}
-              </CardDescription>
+            <CardHeader className='flex flex-row items-center justify-between'>
+              <div>
+                <CardTitle className='flex items-center'>
+                  <Truck className='mr-2 h-5 w-5' />
+                  My Active Deliveries
+                </CardTitle>
+                <CardDescription>
+                  {loading
+                    ? 'Loading deliveries...'
+                    : `${
+                        deliveries.filter((d) => d.status === 'in_transit')
+                          .length
+                      } active deliveries`}
+                </CardDescription>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefresh}
+                disabled={loading || refreshing}
+                className='flex items-center gap-2'
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
+                />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -117,7 +157,10 @@ export default function MyDeliveries() {
               ) : deliveries.filter((d) => d.status === 'in_transit').length ===
                 0 ? (
                 <div className='text-center py-8 text-gray-500'>
-                  You have no active deliveries
+                  <p>You have no active deliveries</p>
+                  <p className='text-sm mt-2'>
+                    Pick up a package from the View Packages page
+                  </p>
                 </div>
               ) : (
                 <div className='space-y-4'>

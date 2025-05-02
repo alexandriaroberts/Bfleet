@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, QrCode } from 'lucide-react';
 import Link from 'next/link';
 import { confirmDelivery, getPackageById } from '@/lib/nostr';
+import { useNostr } from '@/components/nostr-provider';
 import { QrScanner } from '@/components/qr-scanner';
 
 interface PackageData {
@@ -28,6 +29,7 @@ interface PackageData {
 }
 
 export default function ConfirmDelivery() {
+  const { isReady } = useNostr();
   const searchParams = useSearchParams();
   const [packageData, setPackageData] = useState<PackageData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,10 +40,12 @@ export default function ConfirmDelivery() {
   const packageId = searchParams.get('id');
 
   useEffect(() => {
+    if (!isReady || !packageId) return;
+
     const fetchPackage = async (id: string) => {
       setLoading(true);
       try {
-        // In a real implementation, this would fetch from your Nostr relay
+        // Fetch package from Nostr
         const pkg = await getPackageById(id);
         setPackageData(pkg);
       } catch (error) {
@@ -49,21 +53,20 @@ export default function ConfirmDelivery() {
           description:
             'Failed to load package details. Invalid or expired QR code.',
         });
+        console.error('Error fetching package:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    if (packageId) {
-      fetchPackage(packageId);
-    }
-  }, [packageId]);
+    fetchPackage(packageId);
+  }, [packageId, isReady]);
 
   const handleConfirm = async () => {
     if (!packageData) return;
 
     try {
-      // In a real implementation, this would publish to your Nostr relay
+      // Confirm delivery using Nostr
       await confirmDelivery(packageData.id);
       setConfirmed(true);
 
@@ -74,25 +77,44 @@ export default function ConfirmDelivery() {
       toast.error('Error', {
         description: 'Failed to confirm delivery. Please try again.',
       });
+      console.error('Error confirming delivery:', error);
     }
   };
 
   const handleScanResult = (result: string) => {
     // Extract the package ID from the scanned URL
-    const url = new URL(result);
-    const id = url.searchParams.get('id');
+    try {
+      const url = new URL(result);
+      const id = url.searchParams.get('id');
 
-    if (id) {
-      // Redirect to the same page with the ID parameter
-      window.location.href = `/confirm-delivery?id=${id}`;
-    } else {
+      if (id) {
+        // Redirect to the same page with the ID parameter
+        window.location.href = `/confirm-delivery?id=${id}`;
+      } else {
+        toast.error('Invalid QR Code', {
+          description: 'The scanned QR code is not valid for package delivery.',
+        });
+      }
+    } catch (error) {
       toast.error('Invalid QR Code', {
-        description: 'The scanned QR code is not valid for package delivery.',
+        description: 'The scanned QR code is not a valid URL.',
       });
+      console.error('Error parsing QR code:', error);
     }
 
     setShowScanner(false);
   };
+
+  if (!isReady) {
+    return (
+      <div className='container mx-auto px-4 py-8'>
+        <div className='flex justify-center items-center h-64'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+          <p className='ml-2'>Loading Nostr...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='container mx-auto px-4 py-8'>

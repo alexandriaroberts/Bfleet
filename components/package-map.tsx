@@ -59,7 +59,7 @@ export default function PackageMap({
     null
   );
 
-  // Custom marker icon function - updated to match new design
+  // Custom marker icon function
   const createMarkerIcon = (selected: boolean) => {
     // Use teal for selected markers, darker for unselected
     const bgColor = selected ? '#F67B4E' : '#9376E0'; // Orange or Purple
@@ -67,7 +67,7 @@ export default function PackageMap({
     return L.divIcon({
       className: 'custom-package-marker',
       html: `<div style="background-color: ${bgColor}; width: 2.5rem; height: 2.5rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transform: translate(-1.25rem, -1.25rem);">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
           <circle cx="12" cy="10" r="3"></circle>
         </svg>
@@ -95,7 +95,7 @@ export default function PackageMap({
           if (mapRef.current) {
             mapRef.current.setView([latitude, longitude], 13);
 
-            // Add user marker with teal color
+            // Add user marker
             L.marker([latitude, longitude], {
               icon: L.divIcon({
                 className: 'user-location-marker',
@@ -130,8 +130,10 @@ export default function PackageMap({
             `
             <div style="font-family: system-ui, sans-serif; padding: 4px;">
               <div style="font-weight: bold; color: #1E293B;">${pkg.title}</div>
+           
               <div style="font-size: 0.875rem; margin-top: 2px;">To: ${pkg.destination}</div>
               <div style="color: #F67B4E; font-weight: bold; margin-top: 4px;">${pkg.cost} sats</div>
+              <div style="font-size: 0.75rem; color: #6B7280; margin-top: 2px;">Status: ${pkg.status}</div>
             </div>
           `
           )

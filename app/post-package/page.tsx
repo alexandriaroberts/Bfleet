@@ -20,9 +20,11 @@ import { toast } from 'sonner';
 import { ArrowLeft, Package } from 'lucide-react';
 import Link from 'next/link';
 import { createPackage } from '@/lib/nostr';
+import { useNostr } from '@/components/nostr-provider';
 
 export default function PostPackage() {
   const router = useRouter();
+  const { isReady } = useNostr();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -45,23 +47,38 @@ export default function PostPackage() {
     setIsSubmitting(true);
 
     try {
-      // This is a placeholder for the actual Nostr event creation
-      // In a real implementation, this would publish to your Nostr relay
-      await createPackage(formData);
+      // Create package using Nostr
+      const packageId = await createPackage(formData);
+      console.log('Package created with ID:', packageId);
 
       toast.success('Package Posted', {
         description: 'Your package has been successfully posted for delivery.',
       });
 
-      router.push('/view-packages');
+      // Add a small delay before redirecting to ensure the event is propagated
+      setTimeout(() => {
+        router.push('/view-packages');
+      }, 1000);
     } catch (error) {
       toast.error('Error', {
         description: 'Failed to post package. Please try again.',
       });
+      console.error('Error posting package:', error);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (!isReady) {
+    return (
+      <div className='container mx-auto px-4 py-8'>
+        <div className='flex justify-center items-center h-64'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+          <p className='ml-2'>Loading Nostr...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='container mx-auto px-4 py-8'>
@@ -83,7 +100,7 @@ export default function PostPackage() {
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
-          <CardContent className='space-y-6 pt-6'>
+          <CardContent className='space-y-4 pt-6'>
             <div className='space-y-2'>
               <Label htmlFor='title'>Package Title</Label>
               <Input

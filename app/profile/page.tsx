@@ -11,29 +11,52 @@ import {
 import { ArrowLeft, User, Star, Package, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import { getUserProfile, type ProfileData } from '@/lib/nostr';
+import { useNostr } from '@/components/nostr-provider';
+import { getNpub } from '@/lib/nostr-keys';
 import { toast } from 'sonner';
-import Image from 'next/image';
 
 export default function Profile() {
+  const { publicKey, isReady } = useNostr();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [npub, setNpub] = useState<string>('');
 
   useEffect(() => {
+    if (!isReady) return;
+
     const fetchProfile = async () => {
       try {
-        const profileData = await getUserProfile();
+        // Fetch profile from Nostr
+        const profileData = await getUserProfile(publicKey);
         setProfile(profileData);
+
+        // Format npub for display
+        if (publicKey) {
+          setNpub(getNpub(publicKey));
+        }
       } catch (error) {
         toast.error('Error', {
           description: 'Failed to load profile data.',
         });
+        console.error('Error fetching profile:', error);
       } finally {
         setLoading(false);
       }
     };
 
     fetchProfile();
-  }, []);
+  }, [publicKey, isReady]);
+
+  if (!isReady) {
+    return (
+      <div className='container mx-auto px-4 py-8'>
+        <div className='flex justify-center items-center h-64'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+          <p className='ml-2'>Loading Nostr...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='container mx-auto px-4 py-8'>
@@ -48,7 +71,7 @@ export default function Profile() {
             <User className='mr-2 h-5 w-5' />
             Profile
           </CardTitle>
-          <CardDescription>Your Nostr profile and reputation</CardDescription>
+          <CardDescription>Your Nostr profile</CardDescription>
         </CardHeader>
         <CardContent className='space-y-4'>
           {loading ? (
@@ -59,12 +82,10 @@ export default function Profile() {
             <>
               <div className='flex justify-center mb-4'>
                 {profile.picture ? (
-                  <Image
-                    src='/placeholder.png'
+                  <img
+                    src={profile.picture || '/placeholder.svg'}
                     alt={profile.displayName || profile.name || 'User'}
-                    width={96}
-                    height={96}
-                    className='w-24 h-24 rounded-full object-cover centre'
+                    className='w-24 h-24 rounded-full object-cover'
                   />
                 ) : (
                   <div className='w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center'>
@@ -72,13 +93,12 @@ export default function Profile() {
                   </div>
                 )}
               </div>
+
               <div className='text-center'>
                 <h2 className='text-xl font-bold'>
                   {profile.displayName || profile.name || 'Anonymous User'}
                 </h2>
-                <p className='text-sm text-gray-500 break-all'>
-                  {profile.pubkey}
-                </p>
+                <p className='text-sm text-gray-500 break-all'>{npub}</p>
               </div>
 
               <div className='grid grid-cols-3 gap-4 text-center pt-4'>

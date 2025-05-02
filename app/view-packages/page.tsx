@@ -110,7 +110,7 @@ export default function ViewPackages() {
 
   if (!isReady) {
     return (
-      <div className='container mx-auto px-4 py-8'>
+      <div className='container mx-auto px-4 pt-24 pb-8'>
         <div className='flex justify-center items-center h-64'>
           <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
           <p className='ml-2'>Loading Nostr...</p>
@@ -120,7 +120,7 @@ export default function ViewPackages() {
   }
 
   return (
-    <div className='container mx-auto px-4 py-8'>
+    <div className='container mx-auto px-4 pt-24 pb-8'>
       <Link href='/' className='flex items-center text-sm mb-6 hover:underline'>
         <ArrowLeft className='mr-2 h-4 w-4' />
         Back to Home

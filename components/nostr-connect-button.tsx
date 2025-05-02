@@ -31,6 +31,10 @@ export function NostrConnectButton() {
     }
   }, [publicKey]);
 
+  // Custom gradient button style
+  const gradientButtonClass =
+    'bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white border-0 hover:shadow-glow-orange transition-all';
+
   if (!isReady) {
     return (
       <Button disabled className='flex items-center gap-2'>
@@ -44,7 +48,7 @@ export function NostrConnectButton() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className='flex items-center gap-2'>
+          <Button className={`flex items-center gap-2 ${gradientButtonClass}`}>
             <User className='h-4 w-4' />
             {npub}
           </Button>
@@ -69,7 +73,7 @@ export function NostrConnectButton() {
 
   return (
     <Link href='/login'>
-      <Button className='flex items-center gap-2'>
+      <Button className={`flex items-center gap-2 ${gradientButtonClass}`}>
         <Key className='h-4 w-4' />
         Login with Nostr
       </Button>

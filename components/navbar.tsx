@@ -67,9 +67,7 @@ export function Navbar() {
           >
             My Deliveries
           </Link>
-          <div className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white px-4 py-2 rounded-full font-medium hover:shadow-glow-orange transition-all'>
-            <NostrConnectButton />
-          </div>
+          <NostrConnectButton />
         </div>
 
         {/* Mobile Menu Button */}
@@ -106,7 +104,7 @@ export function Navbar() {
             >
               My Deliveries
             </Link>
-            <div className='py-3 px-4 bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white rounded-lg font-medium'>
+            <div className='py-3 px-4'>
               <NostrConnectButton />
             </div>
           </div>

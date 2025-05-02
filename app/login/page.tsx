@@ -30,6 +30,8 @@ export default function LoginPage() {
       // Use replace instead of push to avoid browser history issues
       router.replace('/');
     }, 1000);
+
+    window.location.href = '/';
   };
 
   return (

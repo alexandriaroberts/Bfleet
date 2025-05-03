@@ -21,6 +21,7 @@ import { ArrowLeft, Package } from 'lucide-react';
 import Link from 'next/link';
 import { createPackage } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
+import { AddressInput } from '@/components/address-input';
 
 export default function PostPackage() {
   const router = useRouter();
@@ -40,6 +41,13 @@ export default function PostPackage() {
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAddressChange = (
+    field: 'pickupLocation' | 'destination',
+    value: string
+  ) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -115,24 +123,24 @@ export default function PostPackage() {
 
             <div className='space-y-2'>
               <Label htmlFor='pickupLocation'>Pickup Location</Label>
-              <Input
+              <AddressInput
                 id='pickupLocation'
-                name='pickupLocation'
-                placeholder='123 Main St, City'
                 value={formData.pickupLocation}
-                onChange={handleChange}
+                onChange={(value) =>
+                  handleAddressChange('pickupLocation', value)
+                }
+                placeholder='123 Main St, City'
                 required
               />
             </div>
 
             <div className='space-y-2'>
               <Label htmlFor='destination'>Destination</Label>
-              <Input
+              <AddressInput
                 id='destination'
-                name='destination'
-                placeholder='456 Oak Ave, City'
                 value={formData.destination}
-                onChange={handleChange}
+                onChange={(value) => handleAddressChange('destination', value)}
+                placeholder='456 Oak Ave, City'
                 required
               />
             </div>

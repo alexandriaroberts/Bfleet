@@ -51,14 +51,14 @@ export default function Onboarding() {
     <div className='min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12'>
       <Card className='w-full max-w-md'>
         <CardHeader>
-          <CardTitle>Welcome to Bfleet</CardTitle>
+          <CardTitle>Welcome to A to ₿</CardTitle>
           <CardDescription>
             Let's get you connected to our delivery network
           </CardDescription>
         </CardHeader>
         <CardContent>
           <p className='text-sm text-gray-500 mb-4'>
-            Bfleet uses Nostr to connect users. To ensure you can see all
+            A to ₿ uses Nostr to connect users. To ensure you can see all
             available packages, we need to connect you to our relay server.
           </p>
         </CardContent>
@@ -68,7 +68,7 @@ export default function Onboarding() {
             onClick={configureRelays}
             disabled={isConfiguring}
           >
-            {isConfiguring ? 'Configuring...' : 'Connect to Bfleet Network'}
+            {isConfiguring ? 'Configuring...' : 'Connect to atob Network'}
           </Button>
         </CardFooter>
       </Card>

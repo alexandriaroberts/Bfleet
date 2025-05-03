@@ -122,7 +122,7 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
             Connect to Nostr
           </CardTitle>
           <CardDescription>
-            Use your existing Nostr account to connect to Bfleet
+            Use your existing Nostr account to connect to A to ₿
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
@@ -148,7 +148,7 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
           Connect to Nostr
         </CardTitle>
         <CardDescription>
-          Use your existing Nostr account to connect to Bfleet
+          Use your existing Nostr account to connect to A to ₿
         </CardDescription>
       </CardHeader>
       <CardContent className='space-y-6'>

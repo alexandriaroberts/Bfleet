@@ -35,16 +35,59 @@ interface PackageMapProps {
   onSelectPackage: (pkg: PackageData) => void;
 }
 
-// Mock geocoding function - in a real app, you would use a geocoding service
-const mockGeocode = (address: string): [number, number] => {
-  // Generate random coordinates near San Francisco for demo purposes
+// Improved geocoding function that tries to extract coordinates from addresses
+const geocodeAddress = async (address: string): Promise<[number, number]> => {
+  // Check if the address contains coordinates in the format "Current Location (lat, lng)"
+  const coordsMatch = address.match(/$$(-?\d+\.\d+),\s*(-?\d+\.\d+)$$/);
+  if (coordsMatch) {
+    const lat = Number.parseFloat(coordsMatch[1]);
+    const lng = Number.parseFloat(coordsMatch[2]);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      return [lat, lng];
+    }
+  }
+
+  try {
+    // Try to geocode using Nominatim
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+        address
+      )}&limit=1`,
+      {
+        headers: {
+          'User-Agent': 'atobApp/1.0',
+        },
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const lat = Number.parseFloat(data[0].lat);
+        const lon = Number.parseFloat(data[0].lon);
+        return [lat, lon];
+      }
+    }
+  } catch (error) {
+    console.error('Error geocoding address:', error);
+  }
+
+  // Fallback to city-based coordinates if geocoding fails
+  if (address.toLowerCase().includes('san francisco')) {
+    return [37.7749, -122.4194];
+  } else if (address.toLowerCase().includes('las vegas')) {
+    return [36.1699, -115.1398];
+  } else if (address.toLowerCase().includes('austin')) {
+    return [30.2672, -97.7431];
+  } else if (address.toLowerCase().includes('new york')) {
+    return [40.7128, -74.006];
+  }
+
+  // Default to San Francisco with random offset as last resort
   const sfLat = 37.7749;
   const sfLng = -122.4194;
-
-  // Generate a random offset between -0.05 and 0.05 degrees
   const latOffset = (Math.random() - 0.5) * 0.1;
   const lngOffset = (Math.random() - 0.5) * 0.1;
-
   return [sfLat + latOffset, sfLng + lngOffset];
 };
 
@@ -58,16 +101,16 @@ export default function PackageMap({
   const [userLocation, setUserLocation] = useState<[number, number] | null>(
     null
   );
+  const [isMapReady, setIsMapReady] = useState(false);
 
   // Custom marker icon function
   const createMarkerIcon = (selected: boolean) => {
-    // Use teal for selected markers, darker for unselected
-    const bgColor = selected ? '#F67B4E' : '#9376E0'; // Orange or Purple
+    const bgColor = selected ? '#3B82F6' : '#1E40AF';
 
     return L.divIcon({
       className: 'custom-package-marker',
-      html: `<div style="background-color: ${bgColor}; width: 2.5rem; height: 2.5rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transform: translate(-1.25rem, -1.25rem);">
-         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      html: `<div style="background-color: ${bgColor}; width: 2rem; height: 2rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); transform: translate(-1rem, -1rem);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
           <circle cx="12" cy="10" r="3"></circle>
         </svg>
@@ -76,8 +119,8 @@ export default function PackageMap({
     });
   };
 
+  // Initialize map
   useEffect(() => {
-    // Initialize map
     if (!mapRef.current) {
       mapRef.current = L.map('map').setView([37.7749, -122.4194], 12);
 
@@ -99,7 +142,7 @@ export default function PackageMap({
             L.marker([latitude, longitude], {
               icon: L.divIcon({
                 className: 'user-location-marker',
-                html: `<div style="width: 1rem; height: 1rem; background-color: #16BDC9; border-radius: 9999px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);"></div>`,
+                html: `<div style="width: 1rem; height: 1rem; background-color: #3B82F6; border-radius: 9999px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);"></div>`,
                 iconSize: [20, 20],
               }),
             })
@@ -111,48 +154,64 @@ export default function PackageMap({
           console.error('Error getting location:', error);
         }
       );
+
+      setIsMapReady(true);
     }
 
-    // Add package markers
-    packages.forEach((pkg) => {
-      if (pkg.status !== 'available') return;
-
-      // In a real app, you would geocode the addresses
-      const pickupCoords = mockGeocode(pkg.pickupLocation);
-
-      if (!markersRef.current[pkg.id] && mapRef.current) {
-        // Use custom marker icon
-        const marker = L.marker(pickupCoords, {
-          icon: createMarkerIcon(selectedPackage?.id === pkg.id),
-        })
-          .addTo(mapRef.current)
-          .bindPopup(
-            `
-            <div style="font-family: system-ui, sans-serif; padding: 4px;">
-              <div style="font-weight: bold; color: #1E293B;">${pkg.title}</div>
-           
-              <div style="font-size: 0.875rem; margin-top: 2px;">To: ${pkg.destination}</div>
-              <div style="color: #F67B4E; font-weight: bold; margin-top: 4px;">${pkg.cost} sats</div>
-              <div style="font-size: 0.75rem; color: #6B7280; margin-top: 2px;">Status: ${pkg.status}</div>
-            </div>
-          `
-          )
-          .on('click', () => {
-            onSelectPackage(pkg);
-          });
-
-        markersRef.current[pkg.id] = marker;
-      }
-    });
-
-    // Cleanup function
     return () => {
-      Object.values(markersRef.current).forEach((marker) => {
-        marker.remove();
-      });
-      markersRef.current = {};
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
-  }, [packages, onSelectPackage, selectedPackage]);
+  }, []);
+
+  // Add package markers
+  useEffect(() => {
+    if (!isMapReady || !mapRef.current) return;
+
+    // Clear existing markers
+    Object.values(markersRef.current).forEach((marker) => {
+      marker.remove();
+    });
+    markersRef.current = {};
+
+    // Add new markers
+    const addMarkers = async () => {
+      for (const pkg of packages) {
+        if (pkg.status !== 'available') continue;
+
+        try {
+          // Geocode the pickup location
+          const pickupCoords = await geocodeAddress(pkg.pickupLocation);
+
+          // Create marker
+          const marker = L.marker(pickupCoords, {
+            icon: createMarkerIcon(selectedPackage?.id === pkg.id),
+          })
+            .addTo(mapRef.current!)
+            .bindPopup(
+              `
+              <div style="font-family: system-ui, sans-serif; padding: 4px;">
+                <div style="font-weight: bold;">${pkg.title}</div>
+                <div style="font-size: 0.875rem; margin-top: 2px;">To: ${pkg.destination}</div>
+                <div style="font-weight: bold; margin-top: 4px;">${pkg.cost} sats</div>
+              </div>
+            `
+            )
+            .on('click', () => {
+              onSelectPackage(pkg);
+            });
+
+          markersRef.current[pkg.id] = marker;
+        } catch (error) {
+          console.error(`Error adding marker for package ${pkg.id}:`, error);
+        }
+      }
+    };
+
+    addMarkers();
+  }, [packages, isMapReady, selectedPackage?.id]);
 
   // Update selected package marker
   useEffect(() => {
@@ -176,9 +235,9 @@ export default function PackageMap({
       style={{
         position: 'relative',
         height: '500px',
-        borderRadius: '1rem',
+        borderRadius: '0.5rem',
         overflow: 'hidden',
-        boxShadow: '0 10px 25px rgba(147, 118, 224, 0.1)',
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
       }}
     >
       <div id='map' style={{ height: '100%', width: '100%' }}></div>
@@ -194,24 +253,15 @@ export default function PackageMap({
         >
           <button
             style={{
-              backgroundColor: '#16BDC9',
+              backgroundColor: '#3B82F6',
               color: 'white',
               border: 'none',
               padding: '0.5rem 1rem',
-              borderRadius: '0.75rem',
+              borderRadius: '0.375rem',
               fontSize: '0.875rem',
               fontWeight: '500',
               cursor: 'pointer',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              transition: 'all 0.2s',
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.boxShadow = '0 6px 8px rgba(0, 0, 0, 0.12)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
             }}
             onClick={() => {
               if (mapRef.current && userLocation) {

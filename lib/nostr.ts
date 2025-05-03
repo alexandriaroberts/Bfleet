@@ -73,7 +73,7 @@ export async function createPackage(
       kind: EVENT_KINDS.PACKAGE_LISTING,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
-        ['t', 'bfleet-package'],
+        ['t', 'atob-package'],
         ['pickup', packageData.pickupLocation],
         ['destination', packageData.destination],
         ['cost', packageData.cost],
@@ -126,7 +126,7 @@ export async function getPackages(): Promise<PackageData[]> {
       [
         {
           kinds: [EVENT_KINDS.PACKAGE_LISTING],
-          '#t': ['bfleet-package'],
+          '#t': ['atob-package'],
         },
       ],
       5000
@@ -455,7 +455,7 @@ export async function pickupPackage(packageId: string): Promise<void> {
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['e', packageId], // Reference to the package event
-        ['t', 'bfleet-pickup'],
+        ['t', 'atob-pickup'],
       ],
       content: JSON.stringify({ action: 'pickup' }),
       pubkey: publicKey,
@@ -522,7 +522,7 @@ export async function completeDelivery(packageId: string): Promise<void> {
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['e', packageId], // Reference to the package event
-        ['t', 'bfleet-delivery'],
+        ['t', 'atob-delivery'],
         ['status', 'completed'],
       ],
       content: JSON.stringify({ action: 'delivery_completed' }),
@@ -562,7 +562,7 @@ export async function confirmDelivery(packageId: string): Promise<void> {
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['e', packageId], // Reference to the package event
-        ['t', 'bfleet-delivery'],
+        ['t', 'atob-delivery'],
         ['status', 'confirmed'],
       ],
       content: JSON.stringify({ action: 'delivery_confirmed' }),
@@ -651,8 +651,8 @@ export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
     // Return default profile if no events found
     return {
       pubkey: userPubkey,
-      name: 'bfleet_user',
-      displayName: 'Bfleet User',
+      name: 'atob_user',
+      displayName: 'A to ₿ User',
       followers: 0,
       following: 0,
       deliveries: 0,
@@ -662,8 +662,8 @@ export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
     console.error('Failed to fetch profile:', error);
     return {
       pubkey: pubkey || getUserPubkey(),
-      name: 'bfleet_user',
-      displayName: 'Bfleet User',
+      name: 'atob_user',
+      displayName: 'A to ₿ User',
       followers: 0,
       following: 0,
       deliveries: 0,

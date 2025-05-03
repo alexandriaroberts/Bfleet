@@ -3,11 +3,15 @@ import { SimplePool, type Event, type Filter } from 'nostr-tools';
 // Initialize relay pool
 const pool = new SimplePool();
 
-// Set your private relay as the default
+// First, update the RELAYS array to include more public relays
 const RELAYS = [
-  'wss://your-private-relay-url.com', // Replace with your relay URL
-  'wss://relay.damus.io', // Keep some public relays as backup
+  'wss://relay.damus.io',
   'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://relay.snort.social',
+  'wss://nostr-pub.wellorder.net',
+  'wss://relay.current.fyi',
+  'wss://your-private-relay-url.com', // Keep this as fallback
 ];
 
 // Get relays from localStorage or use defaults
@@ -31,10 +35,10 @@ export function setRelays(relays: string[]): void {
   localStorage.setItem('relays', JSON.stringify(relays));
 }
 
-// Connect to relays and get events
+// Update the listEvents function to work with nostr-tools v2.12.0
 export async function listEvents(
   filters: Filter[],
-  timeoutMs = 3000
+  timeoutMs = 5000
 ): Promise<Event[]> {
   const relays = getRelays();
   console.log(`Fetching events from relays: ${relays.join(', ')}`);
@@ -45,10 +49,7 @@ export async function listEvents(
     let timeoutId: NodeJS.Timeout;
 
     try {
-      // Create a new pool for this request to avoid issues with existing connections
-      const requestPool = new SimplePool();
-
-      // Use a timeout to resolve after a certain time
+      // Set up a timeout to resolve after a certain time
       timeoutId = setTimeout(() => {
         console.log(
           `Timeout reached after ${timeoutMs}ms, returning ${events.length} events`
@@ -56,45 +57,23 @@ export async function listEvents(
         resolve(events);
       }, timeoutMs);
 
-      // Try to use get method first (for compatibility)
-      requestPool
-        .get(relays, filters)
-        .then((foundEvents) => {
-          if (foundEvents) {
-            console.log(`Found ${foundEvents.length} events using pool.get`);
-            events.push(...foundEvents);
+      // Use the query method which is available in nostr-tools v2.12.0
+      pool.querySync(relays, filters, {
+        onEvent: (event: Event) => {
+          // Check if this event is already in our list (by ID)
+          if (!events.some((e) => e.id === event.id)) {
+            events.push(event);
           }
+        },
+        oneose: () => {
+          console.log(`End of stored events, found ${events.length} events`);
           clearTimeout(timeoutId);
           resolve(events);
-        })
-        .catch((error) => {
-          console.error('Error using pool.get:', error);
-
-          // If get fails, try using list as fallback
-          try {
-            const sub = requestPool.sub(relays, filters);
-
-            sub.on('event', (event: Event) => {
-              events.push(event);
-            });
-
-            sub.on('eose', () => {
-              console.log(
-                `End of stored events, found ${events.length} events`
-              );
-              clearTimeout(timeoutId);
-              sub.unsub();
-              resolve(events);
-            });
-          } catch (subError) {
-            console.error('Error using pool.sub:', subError);
-            clearTimeout(timeoutId);
-            resolve(events);
-          }
-        });
+        },
+      });
     } catch (error) {
       console.error('Error in listEvents:', error);
-      clearTimeout(timeoutId);
+      clearTimeout(timeoutId!);
       resolve(events);
     }
   });
@@ -104,8 +83,8 @@ export async function listEvents(
 export async function getEventById(id: string): Promise<Event | null> {
   try {
     const relays = getRelays();
-    const events = await pool.get(relays, { ids: [id] });
-    return events || null;
+    const event = await pool.get(relays, { ids: [id] });
+    return event || null;
   } catch (error) {
     console.error('Failed to get event:', error);
     return null;

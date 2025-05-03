@@ -71,7 +71,7 @@ export default function ViewPackages() {
     // Set up a refresh interval to periodically check for new packages
     const refreshInterval = setInterval(() => {
       fetchPackages();
-    }, 60000); // Refresh every 60 seconds
+    }, 30000); // Refresh every 30 seconds (changed from 60s to be more responsive)
 
     return () => clearInterval(refreshInterval);
   }, [isReady]);

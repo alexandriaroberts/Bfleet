@@ -35,20 +35,51 @@ interface PackageMapProps {
   onSelectPackage: (pkg: PackageData) => void;
 }
 
-// Improved geocoding function that tries to extract coordinates from addresses
+// Improved geocoding function that handles various coordinate formats
 const geocodeAddress = async (address: string): Promise<[number, number]> => {
-  // Check if the address contains coordinates in the format "Current Location (lat, lng)"
-  const coordsMatch = address.match(/$$(-?\d+\.\d+),\s*(-?\d+\.\d+)$$/);
-  if (coordsMatch) {
-    const lat = Number.parseFloat(coordsMatch[1]);
-    const lng = Number.parseFloat(coordsMatch[2]);
-    if (!isNaN(lat) && !isNaN(lng)) {
+  console.log(`Geocoding address: "${address}"`);
+
+  // Check for direct coordinate formats
+
+  // Format: "lat, lng" or "lat,lng"
+  const commaFormat = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
+
+  // Format: "lat lng"
+  const spaceFormat = /^\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*$/;
+
+  // Format: "Current Location (lat, lng)"
+  const locationFormat =
+    /Current Location\s*$$\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$$/i;
+
+  // Format: Coordinates in parentheses anywhere in the string
+  const parensFormat = /$$\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$$/;
+
+  const match =
+    address.match(commaFormat) ||
+    address.match(spaceFormat) ||
+    address.match(locationFormat) ||
+    address.match(parensFormat);
+
+  if (match) {
+    const lat = Number.parseFloat(match[1]);
+    const lng = Number.parseFloat(match[2]);
+
+    // Validate the coordinates are in reasonable ranges
+    if (isValidCoordinate(lat, lng)) {
+      console.log(`✅ Successfully parsed coordinates: ${lat}, ${lng}`);
       return [lat, lng];
+    } else {
+      console.warn(
+        `⚠️ Invalid coordinates detected: ${lat}, ${lng}. Using fallback.`
+      );
     }
+  } else {
+    console.log(`No coordinate pattern matched in: "${address}"`);
   }
 
   try {
     // Try to geocode using Nominatim
+    console.log(`Attempting to geocode address: "${address}"`);
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
         address
@@ -65,8 +96,13 @@ const geocodeAddress = async (address: string): Promise<[number, number]> => {
       if (data && data.length > 0) {
         const lat = Number.parseFloat(data[0].lat);
         const lon = Number.parseFloat(data[0].lon);
+        console.log(`✅ Geocoded address to: ${lat}, ${lon}`);
         return [lat, lon];
+      } else {
+        console.log(`No geocoding results found for: "${address}"`);
       }
+    } else {
+      console.error(`Geocoding API error: ${response.status}`);
     }
   } catch (error) {
     console.error('Error geocoding address:', error);
@@ -74,22 +110,39 @@ const geocodeAddress = async (address: string): Promise<[number, number]> => {
 
   // Fallback to city-based coordinates if geocoding fails
   if (address.toLowerCase().includes('san francisco')) {
+    console.log('Using San Francisco coordinates');
     return [37.7749, -122.4194];
   } else if (address.toLowerCase().includes('las vegas')) {
+    console.log('Using Las Vegas coordinates');
     return [36.1699, -115.1398];
   } else if (address.toLowerCase().includes('austin')) {
+    console.log('Using Austin coordinates');
     return [30.2672, -97.7431];
   } else if (address.toLowerCase().includes('new york')) {
+    console.log('Using New York coordinates');
     return [40.7128, -74.006];
   }
 
   // Default to San Francisco with random offset as last resort
+  console.log('Using default location (San Francisco) with random offset');
   const sfLat = 37.7749;
   const sfLng = -122.4194;
   const latOffset = (Math.random() - 0.5) * 0.1;
   const lngOffset = (Math.random() - 0.5) * 0.1;
   return [sfLat + latOffset, sfLng + lngOffset];
 };
+
+// Helper function to validate coordinates
+function isValidCoordinate(lat: number, lng: number): boolean {
+  return (
+    !isNaN(lat) &&
+    !isNaN(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
 
 export default function PackageMap({
   packages,
@@ -178,6 +231,9 @@ export default function PackageMap({
 
     // Add new markers
     const addMarkers = async () => {
+      const bounds = L.latLngBounds([]);
+      let hasValidMarkers = false;
+
       for (const pkg of packages) {
         if (pkg.status !== 'available') continue;
 
@@ -204,14 +260,23 @@ export default function PackageMap({
             });
 
           markersRef.current[pkg.id] = marker;
+
+          // Extend bounds to include this marker
+          bounds.extend(pickupCoords);
+          hasValidMarkers = true;
         } catch (error) {
           console.error(`Error adding marker for package ${pkg.id}:`, error);
         }
       }
+
+      // Fit bounds if we have markers
+      if (hasValidMarkers && mapRef.current) {
+        mapRef.current.fitBounds(bounds, { padding: [50, 50] });
+      }
     };
 
     addMarkers();
-  }, [packages, isMapReady, selectedPackage?.id]);
+  }, [packages, isMapReady, selectedPackage?.id, onSelectPackage]);
 
   // Update selected package marker
   useEffect(() => {
@@ -234,10 +299,9 @@ export default function PackageMap({
     <div
       style={{
         position: 'relative',
-        height: '500px',
+        height: '400px',
         borderRadius: '0.5rem',
         overflow: 'hidden',
-        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
       }}
     >
       <div id='map' style={{ height: '100%', width: '100%' }}></div>

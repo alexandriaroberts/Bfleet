@@ -72,6 +72,30 @@ export function AddressInput({
       return;
     }
 
+    // Check if input looks like coordinates
+    const coordRegex = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
+    const match = query.match(coordRegex);
+
+    if (match) {
+      const lat = Number.parseFloat(match[1]);
+      const lng = Number.parseFloat(match[2]);
+
+      // Validate coordinates
+      if (
+        !isNaN(lat) &&
+        !isNaN(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      ) {
+        // If valid coordinates, don't show suggestions
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+    }
+
     setIsLoadingSuggestions(true);
 
     try {
@@ -162,20 +186,16 @@ export function AddressInput({
           if (data && data.display_name) {
             onChange(data.display_name);
           } else {
-            // Fallback if reverse geocoding fails
-            onChange(
-              `Current Location (${latitude.toFixed(6)}, ${longitude.toFixed(
-                6
-              )})`
-            );
+            // Fallback if reverse geocoding fails - use coordinates directly
+            onChange(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
           }
         } catch (error) {
           console.error('Error getting address from coordinates:', error);
           // Fallback to coordinates if reverse geocoding fails
           onChange(
-            `Current Location (${position.coords.latitude.toFixed(
+            `${position.coords.latitude.toFixed(
               6
-            )}, ${position.coords.longitude.toFixed(6)})`
+            )}, ${position.coords.longitude.toFixed(6)}`
           );
         } finally {
           setIsLoadingLocation(false);

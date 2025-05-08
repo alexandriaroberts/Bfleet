@@ -2,7 +2,7 @@ import { getUserPubkey } from './nostr';
 import type { PackageData } from './nostr-types';
 
 // Local storage keys
-const PACKAGES_STORAGE_KEY = 'local_packages_v2';
+const PACKAGES_STORAGE_KEY = 'shared_packages_v1'; // Changed to shared key
 const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
 
 // Get all available packages from local storage
@@ -13,7 +13,7 @@ export function getLocalPackages(): PackageData[] {
 
     const packages = JSON.parse(packagesJson) as PackageData[];
 
-    // Filter out packages that have been picked up
+    // Filter out packages that have been picked up by the current user
     const myDeliveries = getMyLocalDeliveries();
     const pickedUpIds = myDeliveries.map((pkg) => pkg.id);
 
@@ -60,7 +60,13 @@ export function saveLocalPackage(
 export function getMyLocalDeliveries(): PackageData[] {
   try {
     const deliveriesJson = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
-    return deliveriesJson ? JSON.parse(deliveriesJson) : [];
+    if (!deliveriesJson) return [];
+
+    const deliveries = JSON.parse(deliveriesJson) as PackageData[];
+
+    // Only return deliveries for the current user
+    const currentPubkey = getUserPubkey();
+    return deliveries.filter((pkg) => pkg.courier_pubkey === currentPubkey);
   } catch (error) {
     console.error('Failed to get local deliveries:', error);
     return [];
@@ -84,14 +90,22 @@ export function pickupLocalPackage(packageId: string): void {
 
     // Add to my deliveries
     const myDeliveries = getMyLocalDeliveries();
-    myDeliveries.push({
+    const allDeliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+
+    const updatedPackage = {
       ...packageToPickup,
       status: 'in_transit',
       courier_pubkey: getUserPubkey(), // Add the courier's pubkey
-    });
+    };
+
+    myDeliveries.push(updatedPackage);
+    allDeliveries.push(updatedPackage);
+
     localStorage.setItem(
       MY_DELIVERIES_STORAGE_KEY,
-      JSON.stringify(myDeliveries)
+      JSON.stringify(allDeliveries)
     );
   } catch (error) {
     console.error('Failed to pick up local package:', error);
@@ -103,8 +117,10 @@ export function pickupLocalPackage(packageId: string): void {
 export function completeLocalDelivery(packageId: string): void {
   try {
     // Update status in my deliveries
-    const myDeliveries = getMyLocalDeliveries();
-    const updatedDeliveries = myDeliveries.map((pkg) =>
+    const allDeliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+    const updatedDeliveries = allDeliveries.map((pkg: PackageData) =>
       pkg.id === packageId ? { ...pkg, status: 'delivered' } : pkg
     );
     localStorage.setItem(
@@ -125,10 +141,12 @@ export function getLocalPackageById(id: string): PackageData | null {
     const availablePackage = packages.find((pkg) => pkg.id === id);
     if (availablePackage) return availablePackage;
 
-    // Check my deliveries
-    const myDeliveries = getMyLocalDeliveries();
-    const myDelivery = myDeliveries.find((pkg) => pkg.id === id);
-    if (myDelivery) return myDelivery;
+    // Check all deliveries
+    const allDeliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+    const delivery = allDeliveries.find((pkg: PackageData) => pkg.id === id);
+    if (delivery) return delivery;
 
     return null;
   } catch (error) {
@@ -140,9 +158,11 @@ export function getLocalPackageById(id: string): PackageData | null {
 // Confirm delivery (by recipient)
 export function confirmLocalDelivery(packageId: string): void {
   try {
-    // Update status in my deliveries
-    const myDeliveries = getMyLocalDeliveries();
-    const updatedDeliveries = myDeliveries.map((pkg) =>
+    // Update status in deliveries
+    const allDeliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+    const updatedDeliveries = allDeliveries.map((pkg: PackageData) =>
       pkg.id === packageId ? { ...pkg, status: 'delivered' } : pkg
     );
     localStorage.setItem(
@@ -153,14 +173,4 @@ export function confirmLocalDelivery(packageId: string): void {
     console.error('Failed to confirm local delivery:', error);
     throw error;
   }
-}
-
-// Function to share packages with other users (this would be replaced with a relay later)
-// For now, this could use localStorage, but in a real app would use a server or shared storage
-export function sharePackagesWithOtherUsers(): void {
-  // This is a placeholder for future implementation
-  // In the MVP, packages would be shared through a centralized mechanism
-  console.log(
-    'Sharing packages with other users would happen here in the future'
-  );
 }

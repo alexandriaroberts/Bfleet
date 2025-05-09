@@ -24,6 +24,19 @@ export function getLocalPackages(): PackageData[] {
   }
 }
 
+// Get all deliveries from local storage (not just the current user's)
+export function getAllLocalDeliveries(): PackageData[] {
+  try {
+    const deliveriesJson = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
+    if (!deliveriesJson) return [];
+
+    return JSON.parse(deliveriesJson) as PackageData[];
+  } catch (error) {
+    console.error('Failed to get all local deliveries:', error);
+    return [];
+  }
+}
+
 // Save a new package to local storage
 export function saveLocalPackage(
   packageData: Omit<PackageData, 'id' | 'status' | 'pubkey'>
@@ -57,33 +70,20 @@ export function saveLocalPackage(
 }
 
 // Delete a package from local storage
-export function deleteLocalPackage(packageId: string): boolean {
+export function deleteLocalPackage(packageId: string): void {
   try {
-    const packagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
-    if (!packagesJson) return false;
+    const packages = getLocalPackages();
 
-    const packages = JSON.parse(packagesJson) as PackageData[];
+    // Filter out the package to delete
+    const updatedPackages = packages.filter((pkg) => pkg.id !== packageId);
 
-    // Find the package
-    const packageIndex = packages.findIndex((pkg) => pkg.id === packageId);
-    if (packageIndex === -1) return false;
+    // Save the updated packages list
+    localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(updatedPackages));
 
-    // Check if the package belongs to the current user
-    const currentPubkey = getUserPubkey();
-    if (packages[packageIndex].pubkey !== currentPubkey) {
-      console.error('Cannot delete package: not owned by current user');
-      return false;
-    }
-
-    // Remove the package
-    packages.splice(packageIndex, 1);
-    localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(packages));
-
-    console.log(`Package ${packageId} deleted from local storage`);
-    return true;
+    console.log(`Package deleted from localStorage: ${packageId}`);
   } catch (error) {
     console.error('Failed to delete local package:', error);
-    return false;
+    throw error;
   }
 }
 
@@ -97,33 +97,69 @@ export function getMyLocalDeliveries(): PackageData[] {
 
     // Only return deliveries for the current user
     const currentPubkey = getUserPubkey();
-    return deliveries.filter((pkg) => pkg.courier_pubkey === currentPubkey);
+    const myDeliveries = deliveries.filter(
+      (pkg) => pkg.courier_pubkey === currentPubkey
+    );
+
+    console.log(
+      `Found ${myDeliveries.length} total deliveries for current user in localStorage`
+    );
+    console.log(
+      `- ${
+        myDeliveries.filter((pkg) => pkg.status === 'in_transit').length
+      } in_transit`
+    );
+    console.log(
+      `- ${
+        myDeliveries.filter((pkg) => pkg.status === 'delivered').length
+      } delivered`
+    );
+
+    return myDeliveries;
   } catch (error) {
     console.error('Failed to get local deliveries:', error);
     return [];
   }
 }
 
-// Pick up a package locally
-export function pickupLocalPackage(packageId: string): void {
+// Update the pickupLocalPackage function to handle packages that might not be in local storage
+export function pickupLocalPackage(
+  packageId: string,
+  packageData?: PackageData
+): void {
   try {
     // Get the package from available packages
     const packages = getLocalPackages();
-    const packageToPickup = packages.find((pkg) => pkg.id === packageId);
+    let packageToPickup = packages.find((pkg) => pkg.id === packageId);
 
-    if (!packageToPickup) {
+    // If package not found in local storage but packageData is provided, use that
+    if (!packageToPickup && packageData) {
+      console.log('Package not found in local storage, using provided data');
+      packageToPickup = packageData;
+    } else if (!packageToPickup) {
+      console.log(`Package with ID ${packageId} not found in local storage`);
       throw new Error('Package not found');
     }
 
-    // Remove from available packages
-    const updatedPackages = packages.filter((pkg) => pkg.id !== packageId);
-    localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(updatedPackages));
+    // Remove from available packages if it exists there
+    if (packages.some((pkg) => pkg.id === packageId)) {
+      const updatedPackages = packages.filter((pkg) => pkg.id !== packageId);
+      localStorage.setItem(
+        PACKAGES_STORAGE_KEY,
+        JSON.stringify(updatedPackages)
+      );
+    }
 
     // Add to my deliveries
-    const myDeliveries = getMyLocalDeliveries();
     const allDeliveries = JSON.parse(
       localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
     );
+
+    // Check if this package is already in deliveries
+    if (allDeliveries.some((pkg: PackageData) => pkg.id === packageId)) {
+      console.log(`Package ${packageId} is already in deliveries, skipping`);
+      return;
+    }
 
     const updatedPackage = {
       ...packageToPickup,
@@ -137,31 +173,66 @@ export function pickupLocalPackage(packageId: string): void {
       MY_DELIVERIES_STORAGE_KEY,
       JSON.stringify(allDeliveries)
     );
+
+    console.log(`Package ${packageId} picked up successfully`);
   } catch (error) {
     console.error('Failed to pick up local package:', error);
     throw error;
   }
 }
 
-// Complete a delivery locally
+// Complete a delivery locally - ensure it's properly removed from active deliveries
 export function completeLocalDelivery(packageId: string): void {
   try {
-    // Update status in my deliveries
+    console.log(`Completing delivery for package ${packageId} in localStorage`);
+
+    // Get all deliveries
     const allDeliveries = JSON.parse(
       localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
     );
-    const updatedDeliveries = allDeliveries.map((pkg: PackageData) =>
-      pkg.id === packageId
-        ? {
-            ...pkg,
-            status: 'delivered',
-            delivery_time: Math.floor(Date.now() / 1000),
-          }
-        : pkg
+
+    // Check if the package exists in deliveries
+    const packageIndex = allDeliveries.findIndex(
+      (pkg: PackageData) => pkg.id === packageId
     );
+
+    if (packageIndex === -1) {
+      console.log(
+        `Package ${packageId} not found in deliveries, nothing to complete`
+      );
+      return;
+    }
+
+    console.log(
+      `Found package at index ${packageIndex}, updating status to delivered`
+    );
+
+    // Update the status to delivered
+    allDeliveries[packageIndex] = {
+      ...allDeliveries[packageIndex],
+      status: 'delivered',
+      delivery_time: Math.floor(Date.now() / 1000),
+    };
+
+    // Save back to localStorage
     localStorage.setItem(
       MY_DELIVERIES_STORAGE_KEY,
-      JSON.stringify(updatedDeliveries)
+      JSON.stringify(allDeliveries)
+    );
+    console.log(`Package ${packageId} marked as delivered in localStorage`);
+
+    // Debug the updated deliveries
+    const updatedDeliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+    const inTransitCount = updatedDeliveries.filter(
+      (pkg: PackageData) => pkg.status === 'in_transit'
+    ).length;
+    const deliveredCount = updatedDeliveries.filter(
+      (pkg: PackageData) => pkg.status === 'delivered'
+    ).length;
+    console.log(
+      `After update: ${inTransitCount} in_transit, ${deliveredCount} delivered packages in localStorage`
     );
   } catch (error) {
     console.error('Failed to complete local delivery:', error);

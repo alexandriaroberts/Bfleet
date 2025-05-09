@@ -1,6 +1,4 @@
 'use client';
-
-import { Badge } from '@/components/ui/badge';
 import { useEffect, useState } from 'react';
 import {
   Card,
@@ -11,14 +9,22 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeft, Package, RefreshCw, Settings } from 'lucide-react';
+import {
+  ArrowLeft,
+  Package,
+  RefreshCw,
+  Settings,
+  Truck,
+  CheckCircle,
+} from 'lucide-react';
 import Link from 'next/link';
-import { getPackages, pickupPackage } from '@/lib/nostr';
+import { getPackages, pickupPackage, deletePackage } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { debugStorage } from '@/lib/local-package-service';
 import dynamic from 'next/dynamic';
 import { NostrStatus } from '@/components/nostr-status';
 import { DebugPanel } from '@/components/debug-panel';
+import { Badge } from '@/components/ui/badge';
 
 // Dynamically import the map component to avoid SSR issues
 const PackageMap = dynamic(() => import('@/components/package-map'), {
@@ -37,6 +43,9 @@ interface PackageData {
   description?: string;
   status: 'available' | 'in_transit' | 'delivered';
   pubkey?: string;
+  courier_pubkey?: string;
+  pickup_time?: number;
+  delivery_time?: number;
 }
 
 export default function ViewPackages() {
@@ -47,6 +56,7 @@ export default function ViewPackages() {
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState<'all' | 'my-packages'>('all');
 
   const fetchPackages = async () => {
     try {
@@ -56,11 +66,18 @@ export default function ViewPackages() {
       // Fetch packages from local storage and Nostr
       const pkgs = await getPackages();
       console.log('Fetched packages:', pkgs);
+
       setPackages(pkgs);
 
       // Select the first package by default if available and none is selected
       if (pkgs.length > 0 && !selectedPackage) {
         setSelectedPackage(pkgs[0]);
+      } else if (
+        selectedPackage &&
+        !pkgs.some((pkg) => pkg.id === selectedPackage.id)
+      ) {
+        // If the selected package is no longer available, clear the selection
+        setSelectedPackage(null);
       }
     } catch (error) {
       toast.error('Error', {
@@ -93,19 +110,53 @@ export default function ViewPackages() {
 
   const handlePickup = async (packageId: string) => {
     try {
-      // Pick up package using local storage
+      console.log(`Attempting to pick up package: ${packageId}`);
+
+      // Get the package data first to ensure it exists
+      const packageToPickup = packages.find((pkg) => pkg.id === packageId);
+
+      if (!packageToPickup) {
+        toast.error('Error', {
+          description:
+            'Package not found. It may have been picked up by someone else.',
+        });
+        return;
+      }
+
+      // Pick up package
       await pickupPackage(packageId);
 
-      // Update local state
-      setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
+      // Update local state - only remove from view if it's not the user's own package
+      if (packageToPickup.pubkey !== publicKey) {
+        setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
 
-      if (selectedPackage?.id === packageId) {
-        setSelectedPackage(null);
+        if (selectedPackage?.id === packageId) {
+          setSelectedPackage(null);
+        }
+      } else {
+        // If it's the user's own package, just update its status
+        setPackages((prev) =>
+          prev.map((pkg) =>
+            pkg.id === packageId
+              ? {
+                  ...pkg,
+                  status: 'in_transit',
+                  courier_pubkey: publicKey,
+                  pickup_time: Math.floor(Date.now() / 1000),
+                }
+              : pkg
+          )
+        );
       }
 
       toast.success('Package Picked Up', {
         description: 'You have successfully picked up the package.',
       });
+
+      // Refresh the list after a short delay
+      setTimeout(() => {
+        fetchPackages();
+      }, 1000);
     } catch (error) {
       toast.error('Error', {
         description: 'Failed to pick up package. Please try again.',
@@ -115,8 +166,40 @@ export default function ViewPackages() {
   };
 
   const isOwnPackage = (pkg: PackageData) => {
+    console.log(
+      `Checking package ownership: ${pkg.pubkey} vs current user: ${publicKey}`
+    );
     return pkg.pubkey === publicKey;
   };
+
+  const handleDeletePackage = async (packageId: string) => {
+    try {
+      // Delete package
+      await deletePackage(packageId);
+
+      // Update local state
+      setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
+
+      if (selectedPackage?.id === packageId) {
+        setSelectedPackage(null);
+      }
+
+      toast.success('Package Deleted', {
+        description: 'Your package has been successfully deleted.',
+      });
+    } catch (error) {
+      toast.error('Error', {
+        description: 'Failed to delete package. Please try again.',
+      });
+      console.error('Error deleting package:', error);
+    }
+  };
+
+  // Filter packages based on view mode
+  const filteredPackages =
+    viewMode === 'all'
+      ? packages.filter((pkg) => pkg.status === 'available')
+      : packages.filter((pkg) => pkg.pubkey === publicKey);
 
   if (!isReady) {
     return (
@@ -152,6 +235,26 @@ export default function ViewPackages() {
       </div>
       <DebugPanel />
 
+      <div className='flex justify-between items-center mb-4'>
+        <h1 className='text-2xl font-bold'>Packages</h1>
+        <div className='flex gap-2'>
+          <Button
+            variant={viewMode === 'all' ? 'default' : 'outline'}
+            size='sm'
+            onClick={() => setViewMode('all')}
+          >
+            Available Packages
+          </Button>
+          <Button
+            variant={viewMode === 'my-packages' ? 'default' : 'outline'}
+            size='sm'
+            onClick={() => setViewMode('my-packages')}
+          >
+            My Packages
+          </Button>
+        </div>
+      </div>
+
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
         <div className='lg:col-span-2'>
           <Card className='h-full'>
@@ -163,7 +266,7 @@ export default function ViewPackages() {
             </CardHeader>
             <CardContent>
               <PackageMap
-                packages={packages}
+                packages={filteredPackages}
                 onSelectPackage={setSelectedPackage}
                 selectedPackage={selectedPackage}
               />
@@ -177,14 +280,12 @@ export default function ViewPackages() {
               <div>
                 <CardTitle className='flex items-center'>
                   <Package className='mr-2 h-5 w-5' />
-                  Available Packages
+                  {viewMode === 'all' ? 'Available Packages' : 'My Packages'}
                 </CardTitle>
                 <CardDescription>
                   {loading
                     ? 'Loading packages...'
-                    : `${
-                        packages.filter((p) => p.status === 'available').length
-                      } packages available`}
+                    : `${filteredPackages.length} packages`}
                 </CardDescription>
               </div>
               <Button
@@ -210,44 +311,95 @@ export default function ViewPackages() {
                     ></div>
                   ))}
                 </div>
-              ) : packages.filter((p) => p.status === 'available').length ===
-                0 ? (
+              ) : filteredPackages.length === 0 ? (
                 <div className='text-center py-8 text-gray-500'>
                   <p>No packages available at the moment</p>
                   <p className='text-sm mt-2'>
-                    Try posting a package or refreshing the list
+                    {viewMode === 'all'
+                      ? 'Try posting a package or refreshing the list'
+                      : "You haven't posted any packages yet"}
                   </p>
                 </div>
               ) : (
                 <div className='space-y-4'>
-                  {packages
-                    .filter((p) => p.status === 'available')
-                    .map((pkg) => (
-                      <Card
-                        key={pkg.id}
-                        className={`cursor-pointer ${
-                          selectedPackage?.id === pkg.id ? 'border-primary' : ''
-                        }`}
-                        onClick={() => setSelectedPackage(pkg)}
-                      >
-                        <CardContent className='p-4'>
+                  {filteredPackages.map((pkg) => (
+                    <Card
+                      key={pkg.id}
+                      className={`cursor-pointer ${
+                        selectedPackage?.id === pkg.id ? 'border-primary' : ''
+                      }`}
+                      onClick={() => setSelectedPackage(pkg)}
+                    >
+                      <CardContent className='p-4'>
+                        <div className='flex items-center justify-between mb-2'>
                           <div className='font-medium'>{pkg.title}</div>
-                          <div className='text-sm text-gray-500 mt-1'>
-                            From: {pkg.pickupLocation}
-                          </div>
-                          <div className='text-sm text-gray-500'>
-                            To: {pkg.destination}
-                          </div>
-                          <div className='flex justify-between items-center mt-2'>
-                            <div className='font-medium'>{pkg.cost} sats</div>
-                            {isOwnPackage(pkg) ? (
-                              <Badge variant='outline' className='text-xs'>
-                                Your Package
-                              </Badge>
-                            ) : (
+                          {pkg.status === 'in_transit' && (
+                            <Badge
+                              variant='outline'
+                              className='bg-blue-50 text-blue-700 border-blue-200'
+                            >
+                              <Truck className='h-3 w-3 mr-1' />
+                              In Transit
+                            </Badge>
+                          )}
+                          {pkg.status === 'delivered' && (
+                            <Badge
+                              variant='outline'
+                              className='bg-green-50 text-green-700 border-green-200'
+                            >
+                              <CheckCircle className='h-3 w-3 mr-1' />
+                              Delivered
+                            </Badge>
+                          )}
+                        </div>
+                        <div className='text-sm text-gray-500 mt-1'>
+                          From: {pkg.pickupLocation}
+                        </div>
+                        <div className='text-sm text-gray-500'>
+                          To: {pkg.destination}
+                        </div>
+                        <div className='flex justify-between items-center mt-2'>
+                          <div className='font-medium'>{pkg.cost} sats</div>
+                          {isOwnPackage(pkg) ? (
+                            pkg.status === 'available' ? (
                               <Button
                                 size='sm'
-                                className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+                                variant='destructive'
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePackage(pkg.id);
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            ) : (
+                              <div className='text-xs text-gray-500'>
+                                {pkg.status === 'in_transit' &&
+                                  pkg.pickup_time && (
+                                    <span>
+                                      Picked up:{' '}
+                                      {new Date(
+                                        pkg.pickup_time * 1000
+                                      ).toLocaleString()}
+                                    </span>
+                                  )}
+                                {pkg.status === 'delivered' &&
+                                  pkg.delivery_time && (
+                                    <span>
+                                      Delivered:{' '}
+                                      {new Date(
+                                        pkg.delivery_time * 1000
+                                      ).toLocaleString()}
+                                    </span>
+                                  )}
+                              </div>
+                            )
+                          ) : (
+                            pkg.status === 'available' && (
+                              <Button
+                                size='sm'
+                                variant='default'
+                                className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white'
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handlePickup(pkg.id);
@@ -255,11 +407,12 @@ export default function ViewPackages() {
                               >
                                 Pick Up
                               </Button>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                            )
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
             </CardContent>

@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { getMyDeliveries, completeDelivery } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { QRCodeSVG } from 'qrcode.react';
+import { debugStorage } from '@/lib/local-package-service';
 
 interface PackageData {
   id: string;
@@ -24,6 +25,9 @@ interface PackageData {
   cost: string;
   description?: string;
   status: 'available' | 'in_transit' | 'delivered';
+  pubkey?: string;
+  courier_pubkey?: string;
+  pickup_time?: number;
 }
 
 export default function MyDeliveries() {
@@ -35,18 +39,66 @@ export default function MyDeliveries() {
   const [showQR, setShowQR] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
 
+  // Update the fetchDeliveries function to ensure proper filtering and logging
   const fetchDeliveries = async () => {
     try {
+      console.log('Fetching my deliveries...');
+      setLoadingError(null);
+
+      // Debug localStorage to see what's there
+      debugStorage();
+
+      // Set a timeout to prevent getting stuck in loading state
+      const timeoutId = setTimeout(() => {
+        if (loading) {
+          console.log('Fetch timeout reached, using local data only');
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingError('Timeout reached. Some data may not be available.');
+        }
+      }, 5000); // 5 second timeout
+
       // Fetch deliveries from Nostr
       const pkgs = await getMyDeliveries();
-      console.log('Fetched deliveries:', pkgs);
-      setDeliveries(pkgs);
+      clearTimeout(timeoutId);
+
+      console.log('Raw deliveries returned:', pkgs);
+
+      // Log the status of each package for debugging
+      pkgs.forEach((pkg) => {
+        console.log(`Package ${pkg.id}: status=${pkg.status}`);
+      });
+
+      // Only show in_transit deliveries - this should be redundant since getMyDeliveries
+      // should already filter, but we'll do it again to be sure
+      const activeDeliveries = pkgs.filter(
+        (pkg) => pkg.status === 'in_transit'
+      );
+      console.log(
+        `Filtered to ${activeDeliveries.length} active deliveries with status="in_transit"`
+      );
+
+      setDeliveries(activeDeliveries);
+
+      // Update selected delivery if it's no longer active
+      if (
+        selectedDelivery &&
+        !activeDeliveries.some((d) => d.id === selectedDelivery.id)
+      ) {
+        console.log(
+          `Selected delivery ${selectedDelivery.id} is no longer active, clearing selection`
+        );
+        setSelectedDelivery(null);
+        setShowQR(false);
+      }
     } catch (error) {
+      console.error('Error fetching deliveries:', error);
+      setLoadingError('Failed to load deliveries. Please try again.');
       toast.error('Error', {
         description: 'Failed to load deliveries. Please try again.',
       });
-      console.error('Error fetching deliveries:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -56,43 +108,72 @@ export default function MyDeliveries() {
   useEffect(() => {
     if (!isReady) return;
 
+    // Fetch deliveries when component mounts
     fetchDeliveries();
+
+    // Set up a refresh interval to periodically check for new deliveries
+    const refreshInterval = setInterval(() => {
+      console.log('Auto-refreshing deliveries...');
+      fetchDeliveries();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
   }, [isReady]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchDeliveries();
-  };
-
+  // Update the handleComplete function to ensure proper state updates
   const handleComplete = async (packageId: string) => {
     try {
+      console.log(`Marking package ${packageId} as delivered`);
+
       // Complete delivery using Nostr
       await completeDelivery(packageId);
-
-      // Update local state
-      setDeliveries((prev) =>
-        prev.map((pkg) =>
-          pkg.id === packageId ? { ...pkg, status: 'delivered' } : pkg
-        )
+      console.log(
+        `Package ${packageId} marked as delivered in Nostr and localStorage`
       );
 
-      setSelectedDelivery(null);
-      setShowQR(false);
+      // Update local state - remove the completed delivery immediately
+      setDeliveries((prev) => {
+        const updated = prev.filter((pkg) => pkg.id !== packageId);
+        console.log(
+          `Removed package ${packageId} from UI, ${updated.length} deliveries remaining`
+        );
+        return updated;
+      });
+
+      // Clear selection if this was the selected delivery
+      if (selectedDelivery?.id === packageId) {
+        console.log(
+          `Clearing selected delivery since ${packageId} was completed`
+        );
+        setSelectedDelivery(null);
+        setShowQR(false);
+      }
 
       toast.success('Delivery Completed', {
         description: 'The delivery has been marked as completed.',
       });
+
+      // Refresh the list after a short delay to ensure everything is in sync
+      setTimeout(() => {
+        console.log('Refreshing deliveries list after completion');
+        fetchDeliveries();
+      }, 1000);
     } catch (error) {
+      console.error('Error completing delivery:', error);
       toast.error('Error', {
         description: 'Failed to complete delivery. Please try again.',
       });
-      console.error('Error completing delivery:', error);
     }
   };
 
   const generateQRValue = (packageId: string) => {
     // Generate a URL to the confirmation page
     return `${window.location.origin}/confirm-delivery?id=${packageId}`;
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDeliveries();
   };
 
   if (!isReady) {
@@ -125,10 +206,7 @@ export default function MyDeliveries() {
                 <CardDescription>
                   {loading
                     ? 'Loading deliveries...'
-                    : `${
-                        deliveries.filter((d) => d.status === 'in_transit')
-                          .length
-                      } active deliveries`}
+                    : `${deliveries.length} active deliveries`}
                 </CardDescription>
               </div>
               <Button
@@ -154,8 +232,19 @@ export default function MyDeliveries() {
                     ></div>
                   ))}
                 </div>
-              ) : deliveries.filter((d) => d.status === 'in_transit').length ===
-                0 ? (
+              ) : loadingError ? (
+                <div className='text-center py-8 text-amber-600'>
+                  <p>{loadingError}</p>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={handleRefresh}
+                    className='mt-4'
+                  >
+                    Try Again
+                  </Button>
+                </div>
+              ) : deliveries.length === 0 ? (
                 <div className='text-center py-8 text-gray-500'>
                   <p>You have no active deliveries</p>
                   <p className='text-sm mt-2'>
@@ -164,61 +253,59 @@ export default function MyDeliveries() {
                 </div>
               ) : (
                 <div className='space-y-4'>
-                  {deliveries
-                    .filter((d) => d.status === 'in_transit')
-                    .map((delivery) => (
-                      <Card
-                        key={delivery.id}
-                        className={`cursor-pointer ${
-                          selectedDelivery?.id === delivery.id
-                            ? 'border-primary'
-                            : ''
-                        }`}
-                        onClick={() => {
-                          setSelectedDelivery(delivery);
-                          setShowQR(false);
-                        }}
-                      >
-                        <CardContent className='p-4'>
-                          <div className='font-medium'>{delivery.title}</div>
-                          <div className='text-sm text-gray-500 mt-1'>
-                            From: {delivery.pickupLocation}
+                  {deliveries.map((delivery) => (
+                    <Card
+                      key={delivery.id}
+                      className={`cursor-pointer ${
+                        selectedDelivery?.id === delivery.id
+                          ? 'border-primary'
+                          : ''
+                      }`}
+                      onClick={() => {
+                        setSelectedDelivery(delivery);
+                        setShowQR(false);
+                      }}
+                    >
+                      <CardContent className='p-4'>
+                        <div className='font-medium'>{delivery.title}</div>
+                        <div className='text-sm text-gray-500 mt-1'>
+                          From: {delivery.pickupLocation}
+                        </div>
+                        <div className='text-sm text-gray-500'>
+                          To: {delivery.destination}
+                        </div>
+                        <div className='flex justify-between items-center mt-2'>
+                          <div className='font-medium'>
+                            {delivery.cost} sats
                           </div>
-                          <div className='text-sm text-gray-500'>
-                            To: {delivery.destination}
+                          <div className='flex gap-2'>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              className='cursor-pointer'
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDelivery(delivery);
+                                setShowQR(true);
+                              }}
+                            >
+                              Show QR
+                            </Button>
+                            <Button
+                              size='sm'
+                              className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleComplete(delivery.id);
+                              }}
+                            >
+                              Complete
+                            </Button>
                           </div>
-                          <div className='flex justify-between items-center mt-2'>
-                            <div className='font-medium'>
-                              {delivery.cost} sats
-                            </div>
-                            <div className='flex gap-2'>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                className='cursor-pointer'
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedDelivery(delivery);
-                                  setShowQR(true);
-                                }}
-                              >
-                                Show QR
-                              </Button>
-                              <Button
-                                size='sm'
-                                className='bg-gray-50 border border-gray-200 rounded-full font-medium text-gray-700 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleComplete(delivery.id);
-                                }}
-                              >
-                                Complete
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
             </CardContent>

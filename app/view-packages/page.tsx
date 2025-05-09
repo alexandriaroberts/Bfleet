@@ -241,6 +241,7 @@ export default function ViewPackages() {
           <Button
             variant={viewMode === 'all' ? 'default' : 'outline'}
             size='sm'
+            className='cursor-pointer'
             onClick={() => setViewMode('all')}
           >
             Available Packages
@@ -365,6 +366,7 @@ export default function ViewPackages() {
                               <Button
                                 size='sm'
                                 variant='destructive'
+                                className='bg-red-500 text-white'
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeletePackage(pkg.id);

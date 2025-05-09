@@ -174,7 +174,7 @@ export default function PostPackage() {
             <Button
               type='button'
               variant='outline'
-              className='w-full border border-gray-200 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
+              className='w-full border bg-gray-50 border-gray-200 hover:border-gray-300 transform hover:-translate-y-1 transition-all duration-300 cursor-pointer'
               onClick={() => router.push('/')}
             >
               Cancel

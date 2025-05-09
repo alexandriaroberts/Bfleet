@@ -54,18 +54,20 @@ export function NostrConnectButton() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end'>
-          <DropdownMenuLabel>Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <Link href='/profile'>
-            <DropdownMenuItem>
-              <User className='mr-2 h-4 w-4' />
-              <span>Profile</span>
+          <div className='bg-[#f5f2fa]'>
+            <DropdownMenuLabel>Account</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <Link href='/profile'>
+              <DropdownMenuItem>
+                <User className='mr-2 h-4 w-4' />
+                <span>Profile</span>
+              </DropdownMenuItem>
+            </Link>
+            <DropdownMenuItem onClick={logout}>
+              <LogOut className='mr-2 h-4 w-4' />
+              <span>Logout</span>
             </DropdownMenuItem>
-          </Link>
-          <DropdownMenuItem onClick={logout}>
-            <LogOut className='mr-2 h-4 w-4' />
-            <span>Logout</span>
-          </DropdownMenuItem>
+          </div>
         </DropdownMenuContent>
       </DropdownMenu>
     );

@@ -1,23 +1,89 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
+import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { useRouter } from 'next/navigation';
 
-// Fix Leaflet icon issues
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
+// Fix for default marker icons in Leaflet with Next.js
 const DefaultIcon = L.icon({
-  iconUrl: icon.src,
-  shadowUrl: iconShadow.src,
+  iconUrl: '/marker-icon.png',
+  shadowUrl: '/marker-shadow.png',
   iconSize: [25, 41],
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
 });
 
-L.Marker.prototype.options.icon = DefaultIcon;
+// Custom marker icon for packages
+const PackageIcon = L.divIcon({
+  className: 'custom-div-icon',
+  html: `<div style="background-color: #3b82f6; width: 30px; height: 30px; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 10px rgba(0,0,0,0.3);">
+           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+             <path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/>
+             <circle cx="12" cy="10" r="3"/>
+           </svg>
+         </div>`,
+  iconSize: [30, 30],
+  iconAnchor: [15, 30],
+  popupAnchor: [0, -30],
+});
+
+// Custom marker icon for selected package
+const SelectedPackageIcon = L.divIcon({
+  className: 'custom-div-icon',
+  html: `<div style="background-color: #ef4444; width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 15px rgba(239,68,68,0.5);">
+           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+             <path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/>
+             <circle cx="12" cy="10" r="3"/>
+           </svg>
+         </div>`,
+  iconSize: [36, 36],
+  iconAnchor: [18, 36],
+  popupAnchor: [0, -36],
+});
+
+// Helper component to recenter map
+function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([lat, lng], map.getZoom());
+  }, [lat, lng, map]);
+  return null;
+}
+
+// Helper component to center on user's location
+function CenterOnMe() {
+  const map = useMap();
+
+  const handleClick = () => {
+    map.locate({ setView: true, maxZoom: 16 });
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className='absolute bottom-4 right-4 z-[999] bg-white px-4 py-2 rounded-md shadow-md text-sm font-medium hover:bg-gray-100 transition-colors'
+      style={{ zIndex: 999 }}
+    >
+      Center on Me
+    </button>
+  );
+}
+
+// Convert address to coordinates (simplified mock version)
+function getCoordinates(address: string): [number, number] {
+  // In a real app, you would use a geocoding service
+  // For this demo, we'll generate random coordinates
+  const hash = Array.from(address).reduce(
+    (acc, char) => acc + char.charCodeAt(0),
+    0
+  );
+  const randomLat = (hash % 180) - 90;
+  const randomLng = (hash % 360) - 180;
+  return [randomLat, randomLng];
+}
 
 interface PackageData {
   id: string;
@@ -26,317 +92,104 @@ interface PackageData {
   destination: string;
   cost: string;
   description?: string;
-  status: 'available' | 'in_transit' | 'delivered';
+  status: string;
 }
 
 interface PackageMapProps {
   packages: PackageData[];
-  selectedPackage: PackageData | null;
-  onSelectPackage: (pkg: PackageData) => void;
-}
-
-// Improved geocoding function that handles various coordinate formats
-const geocodeAddress = async (address: string): Promise<[number, number]> => {
-  console.log(`Geocoding address: "${address}"`);
-
-  // Check for direct coordinate formats
-
-  // Format: "lat, lng" or "lat,lng"
-  const commaFormat = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
-
-  // Format: "lat lng"
-  const spaceFormat = /^\s*(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s*$/;
-
-  // Format: "Current Location (lat, lng)"
-  const locationFormat =
-    /Current Location\s*$$\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$$/i;
-
-  // Format: Coordinates in parentheses anywhere in the string
-  const parensFormat = /$$\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$$/;
-
-  const match =
-    address.match(commaFormat) ||
-    address.match(spaceFormat) ||
-    address.match(locationFormat) ||
-    address.match(parensFormat);
-
-  if (match) {
-    const lat = Number.parseFloat(match[1]);
-    const lng = Number.parseFloat(match[2]);
-
-    // Validate the coordinates are in reasonable ranges
-    if (isValidCoordinate(lat, lng)) {
-      console.log(`✅ Successfully parsed coordinates: ${lat}, ${lng}`);
-      return [lat, lng];
-    } else {
-      console.warn(
-        `⚠️ Invalid coordinates detected: ${lat}, ${lng}. Using fallback.`
-      );
-    }
-  } else {
-    console.log(`No coordinate pattern matched in: "${address}"`);
-  }
-
-  try {
-    // Try to geocode using Nominatim
-    console.log(`Attempting to geocode address: "${address}"`);
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        address
-      )}&limit=1`,
-      {
-        headers: {
-          'User-Agent': 'atobApp/1.0',
-        },
-      }
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const lat = Number.parseFloat(data[0].lat);
-        const lon = Number.parseFloat(data[0].lon);
-        console.log(`✅ Geocoded address to: ${lat}, ${lon}`);
-        return [lat, lon];
-      } else {
-        console.log(`No geocoding results found for: "${address}"`);
-      }
-    } else {
-      console.error(`Geocoding API error: ${response.status}`);
-    }
-  } catch (error) {
-    console.error('Error geocoding address:', error);
-  }
-
-  // Fallback to city-based coordinates if geocoding fails
-  if (address.toLowerCase().includes('san francisco')) {
-    console.log('Using San Francisco coordinates');
-    return [37.7749, -122.4194];
-  } else if (address.toLowerCase().includes('las vegas')) {
-    console.log('Using Las Vegas coordinates');
-    return [36.1699, -115.1398];
-  } else if (address.toLowerCase().includes('austin')) {
-    console.log('Using Austin coordinates');
-    return [30.2672, -97.7431];
-  } else if (address.toLowerCase().includes('new york')) {
-    console.log('Using New York coordinates');
-    return [40.7128, -74.006];
-  }
-
-  // Default to San Francisco with random offset as last resort
-  console.log('Using default location (San Francisco) with random offset');
-  const sfLat = 37.7749;
-  const sfLng = -122.4194;
-  const latOffset = (Math.random() - 0.5) * 0.1;
-  const lngOffset = (Math.random() - 0.5) * 0.1;
-  return [sfLat + latOffset, sfLng + lngOffset];
-};
-
-// Helper function to validate coordinates
-function isValidCoordinate(lat: number, lng: number): boolean {
-  return (
-    !isNaN(lat) &&
-    !isNaN(lng) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lng >= -180 &&
-    lng <= 180
-  );
+  onSelectPackage?: (pkg: PackageData) => void;
+  selectedPackage?: PackageData | null;
 }
 
 export default function PackageMap({
   packages,
-  selectedPackage,
   onSelectPackage,
+  selectedPackage,
 }: PackageMapProps) {
-  const mapRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<{ [key: string]: L.Marker }>({});
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(
-    null
-  );
-  const [isMapReady, setIsMapReady] = useState(false);
+  const router = useRouter();
+  const [center, setCenter] = useState<[number, number]>([20, 0]);
 
-  // Custom marker icon function
-  const createMarkerIcon = (selected: boolean) => {
-    const bgColor = selected ? '#3B82F6' : '#1E40AF';
-
-    return L.divIcon({
-      className: 'custom-package-marker',
-      html: `<div style="background-color: ${bgColor}; width: 2rem; height: 2rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); transform: translate(-1rem, -1rem);">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-          <circle cx="12" cy="10" r="3"></circle>
-        </svg>
-      </div>`,
-      iconSize: [0, 0],
-    });
-  };
-
-  // Initialize map
+  // Set initial center based on user's location
   useEffect(() => {
-    if (!mapRef.current) {
-      mapRef.current = L.map('map').setView([37.7749, -122.4194], 12);
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      }).addTo(mapRef.current);
-
-      // Try to get user's location
+    if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const { latitude, longitude } = position.coords;
-          setUserLocation([latitude, longitude]);
-
-          if (mapRef.current) {
-            mapRef.current.setView([latitude, longitude], 13);
-
-            // Add user marker
-            L.marker([latitude, longitude], {
-              icon: L.divIcon({
-                className: 'user-location-marker',
-                html: `<div style="width: 1rem; height: 1rem; background-color: #3B82F6; border-radius: 9999px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);"></div>`,
-                iconSize: [20, 20],
-              }),
-            })
-              .addTo(mapRef.current)
-              .bindPopup('Your location');
-          }
+          setCenter([position.coords.latitude, position.coords.longitude]);
         },
-        (error) => {
-          console.error('Error getting location:', error);
+        () => {
+          // If geolocation fails, keep default center
         }
       );
-
-      setIsMapReady(true);
     }
-
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
   }, []);
 
-  // Add package markers
+  // Update center when selected package changes
   useEffect(() => {
-    if (!isMapReady || !mapRef.current) return;
-
-    // Clear existing markers
-    Object.values(markersRef.current).forEach((marker) => {
-      marker.remove();
-    });
-    markersRef.current = {};
-
-    // Add new markers
-    const addMarkers = async () => {
-      const bounds = L.latLngBounds([]);
-      let hasValidMarkers = false;
-
-      for (const pkg of packages) {
-        if (pkg.status !== 'available') continue;
-
-        try {
-          // Geocode the pickup location
-          const pickupCoords = await geocodeAddress(pkg.pickupLocation);
-
-          // Create marker
-          const marker = L.marker(pickupCoords, {
-            icon: createMarkerIcon(selectedPackage?.id === pkg.id),
-          })
-            .addTo(mapRef.current!)
-            .bindPopup(
-              `
-              <div style="font-family: system-ui, sans-serif; padding: 4px;">
-                <div style="font-weight: bold;">${pkg.title}</div>
-                <div style="font-size: 0.875rem; margin-top: 2px;">To: ${pkg.destination}</div>
-                <div style="font-weight: bold; margin-top: 4px;">${pkg.cost} sats</div>
-              </div>
-            `
-            )
-            .on('click', () => {
-              onSelectPackage(pkg);
-            });
-
-          markersRef.current[pkg.id] = marker;
-
-          // Extend bounds to include this marker
-          bounds.extend(pickupCoords);
-          hasValidMarkers = true;
-        } catch (error) {
-          console.error(`Error adding marker for package ${pkg.id}:`, error);
-        }
-      }
-
-      // Fit bounds if we have markers
-      if (hasValidMarkers && mapRef.current) {
-        mapRef.current.fitBounds(bounds, { padding: [50, 50] });
-      }
-    };
-
-    addMarkers();
-  }, [packages, isMapReady, selectedPackage?.id, onSelectPackage]);
-
-  // Update selected package marker
-  useEffect(() => {
-    Object.entries(markersRef.current).forEach(([id, marker]) => {
-      // Update the marker icon based on selection
-      marker.setIcon(
-        createMarkerIcon(selectedPackage && id === selectedPackage.id)
-      );
-
-      // Open/close popups
-      if (selectedPackage && id === selectedPackage.id) {
-        marker.openPopup();
-      } else {
-        marker.closePopup();
-      }
-    });
+    if (selectedPackage) {
+      const coords = getCoordinates(selectedPackage.pickupLocation);
+      setCenter(coords);
+    }
   }, [selectedPackage]);
 
   return (
     <div
-      style={{
-        position: 'relative',
-        height: '400px',
-        borderRadius: '0.5rem',
-        overflow: 'hidden',
-      }}
+      className='relative h-[400px] w-full rounded-md overflow-hidden'
+      style={{ zIndex: 10 }}
     >
-      <div id='map' style={{ height: '100%', width: '100%' }}></div>
+      <MapContainer
+        center={center}
+        zoom={2}
+        style={{ height: '100%', width: '100%', zIndex: 10 }}
+        className='z-10'
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        />
 
-      {userLocation && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '1rem',
-            right: '1rem',
-            zIndex: 1000,
-          }}
-        >
-          <button
-            style={{
-              backgroundColor: '#3B82F6',
-              color: 'white',
-              border: 'none',
-              padding: '0.5rem 1rem',
-              borderRadius: '0.375rem',
-              fontSize: '0.875rem',
-              fontWeight: '500',
-              cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-            }}
-            onClick={() => {
-              if (mapRef.current && userLocation) {
-                mapRef.current.setView(userLocation, 13);
-              }
-            }}
-          >
-            Center on Me
-          </button>
-        </div>
-      )}
+        {packages
+          .filter((pkg) => pkg.status === 'available')
+          .map((pkg) => {
+            const coords = getCoordinates(pkg.pickupLocation);
+            const isSelected = selectedPackage?.id === pkg.id;
+            return (
+              <Marker
+                key={pkg.id}
+                position={coords}
+                icon={isSelected ? SelectedPackageIcon : PackageIcon}
+                eventHandlers={{
+                  click: () => {
+                    if (onSelectPackage) {
+                      onSelectPackage(pkg);
+                    }
+                  },
+                }}
+              >
+                <Popup>
+                  <div className='p-1'>
+                    <h3 className='font-medium'>{pkg.title}</h3>
+                    <p className='text-xs text-gray-500'>
+                      From: {pkg.pickupLocation}
+                    </p>
+                    <p className='text-xs text-gray-500'>
+                      To: {pkg.destination}
+                    </p>
+                    <p className='text-xs font-medium mt-1'>{pkg.cost} sats</p>
+                    <button
+                      className='mt-2 text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600'
+                      onClick={() => router.push(`/package/${pkg.id}`)}
+                    >
+                      View Details
+                    </button>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          })}
+
+        <RecenterMap lat={center[0]} lng={center[1]} />
+        <CenterOnMe />
+      </MapContainer>
     </div>
   );
 }

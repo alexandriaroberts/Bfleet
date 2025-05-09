@@ -55,7 +55,7 @@ export default function PostPackage() {
     setIsSubmitting(true);
 
     try {
-      // Create package using Nostr
+      // Create package using Nostr with localStorage fallback
       const packageId = await createPackage(formData);
       console.log('Package created with ID:', packageId);
 

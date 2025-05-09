@@ -56,6 +56,37 @@ export function saveLocalPackage(
   }
 }
 
+// Delete a package from local storage
+export function deleteLocalPackage(packageId: string): boolean {
+  try {
+    const packagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    if (!packagesJson) return false;
+
+    const packages = JSON.parse(packagesJson) as PackageData[];
+
+    // Find the package
+    const packageIndex = packages.findIndex((pkg) => pkg.id === packageId);
+    if (packageIndex === -1) return false;
+
+    // Check if the package belongs to the current user
+    const currentPubkey = getUserPubkey();
+    if (packages[packageIndex].pubkey !== currentPubkey) {
+      console.error('Cannot delete package: not owned by current user');
+      return false;
+    }
+
+    // Remove the package
+    packages.splice(packageIndex, 1);
+    localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(packages));
+
+    console.log(`Package ${packageId} deleted from local storage`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete local package:', error);
+    return false;
+  }
+}
+
 // Get my deliveries from local storage
 export function getMyLocalDeliveries(): PackageData[] {
   try {
@@ -98,11 +129,10 @@ export function pickupLocalPackage(packageId: string): void {
       ...packageToPickup,
       status: 'in_transit',
       courier_pubkey: getUserPubkey(), // Add the courier's pubkey
+      pickup_time: Math.floor(Date.now() / 1000),
     };
 
-    myDeliveries.push(updatedPackage);
     allDeliveries.push(updatedPackage);
-
     localStorage.setItem(
       MY_DELIVERIES_STORAGE_KEY,
       JSON.stringify(allDeliveries)
@@ -121,7 +151,13 @@ export function completeLocalDelivery(packageId: string): void {
       localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
     );
     const updatedDeliveries = allDeliveries.map((pkg: PackageData) =>
-      pkg.id === packageId ? { ...pkg, status: 'delivered' } : pkg
+      pkg.id === packageId
+        ? {
+            ...pkg,
+            status: 'delivered',
+            delivery_time: Math.floor(Date.now() / 1000),
+          }
+        : pkg
     );
     localStorage.setItem(
       MY_DELIVERIES_STORAGE_KEY,
@@ -163,7 +199,13 @@ export function confirmLocalDelivery(packageId: string): void {
       localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
     );
     const updatedDeliveries = allDeliveries.map((pkg: PackageData) =>
-      pkg.id === packageId ? { ...pkg, status: 'delivered' } : pkg
+      pkg.id === packageId
+        ? {
+            ...pkg,
+            status: 'delivered',
+            delivery_time: Math.floor(Date.now() / 1000),
+          }
+        : pkg
     );
     localStorage.setItem(
       MY_DELIVERIES_STORAGE_KEY,
@@ -172,5 +214,90 @@ export function confirmLocalDelivery(packageId: string): void {
   } catch (error) {
     console.error('Failed to confirm local delivery:', error);
     throw error;
+  }
+}
+
+// Add a function to share packages between browsers
+export function sharePackagesWithLocalStorage(): void {
+  try {
+    // Get all packages from localStorage
+    const packagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    if (!packagesJson) return;
+
+    // Parse packages
+    const packages = JSON.parse(packagesJson) as PackageData[];
+
+    // Store in sessionStorage for sharing
+    sessionStorage.setItem('shared_packages_export', JSON.stringify(packages));
+
+    console.log(
+      `Exported ${packages.length} packages to sessionStorage for sharing`
+    );
+  } catch (error) {
+    console.error('Failed to share packages:', error);
+  }
+}
+
+// Import shared packages from another browser
+export function importSharedPackages(): number {
+  try {
+    // Get shared packages from sessionStorage
+    const sharedPackagesJson = sessionStorage.getItem('shared_packages_export');
+    if (!sharedPackagesJson) return 0;
+
+    // Parse shared packages
+    const sharedPackages = JSON.parse(sharedPackagesJson) as PackageData[];
+
+    // Get existing packages
+    const existingPackagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    const existingPackages = existingPackagesJson
+      ? (JSON.parse(existingPackagesJson) as PackageData[])
+      : [];
+
+    // Merge packages, avoiding duplicates
+    let newPackagesCount = 0;
+    for (const sharedPackage of sharedPackages) {
+      if (!existingPackages.some((pkg) => pkg.id === sharedPackage.id)) {
+        existingPackages.push(sharedPackage);
+        newPackagesCount++;
+      }
+    }
+
+    // Save merged packages
+    localStorage.setItem(
+      PACKAGES_STORAGE_KEY,
+      JSON.stringify(existingPackages)
+    );
+
+    console.log(
+      `Imported ${newPackagesCount} new packages from shared storage`
+    );
+    return newPackagesCount;
+  } catch (error) {
+    console.error('Failed to import shared packages:', error);
+    return 0;
+  }
+}
+
+// Debug function to log all packages and deliveries
+export function debugStorage(): void {
+  try {
+    const packagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    const packages = packagesJson ? JSON.parse(packagesJson) : [];
+
+    const deliveriesJson = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
+    const deliveries = deliveriesJson ? JSON.parse(deliveriesJson) : [];
+
+    console.log('=== DEBUG STORAGE ===');
+    console.log(`Current user pubkey: ${getUserPubkey()}`);
+    console.log(`Available packages (${packages.length}):`, packages);
+    console.log(`All deliveries (${deliveries.length}):`, deliveries);
+    console.log(
+      `My deliveries (${getMyLocalDeliveries().length}):`,
+      getMyLocalDeliveries()
+    );
+    console.log('====================');
+  } catch (error) {
+    console.error('Error in debug storage:', error);
   }
 }

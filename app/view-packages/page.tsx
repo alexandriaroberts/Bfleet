@@ -1,7 +1,6 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-
 import { useEffect, useState } from 'react';
 import {
   Card,
@@ -12,11 +11,14 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { ArrowLeft, Package, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Package, RefreshCw, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { getPackages, pickupPackage } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
+import { debugStorage } from '@/lib/local-package-service';
 import dynamic from 'next/dynamic';
+import { NostrStatus } from '@/components/nostr-status';
+import { DebugPanel } from '@/components/debug-panel';
 
 // Dynamically import the map component to avoid SSR issues
 const PackageMap = dynamic(() => import('@/components/package-map'), {
@@ -48,10 +50,18 @@ export default function ViewPackages() {
 
   const fetchPackages = async () => {
     try {
-      // Fetch packages from Nostr
+      // Debug storage to see what's in localStorage
+      debugStorage();
+
+      // Fetch packages from local storage and Nostr
       const pkgs = await getPackages();
       console.log('Fetched packages:', pkgs);
       setPackages(pkgs);
+
+      // Select the first package by default if available and none is selected
+      if (pkgs.length > 0 && !selectedPackage) {
+        setSelectedPackage(pkgs[0]);
+      }
     } catch (error) {
       toast.error('Error', {
         description: 'Failed to load packages. Please try again.',
@@ -71,7 +81,7 @@ export default function ViewPackages() {
     // Set up a refresh interval to periodically check for new packages
     const refreshInterval = setInterval(() => {
       fetchPackages();
-    }, 30000); // Refresh every 30 seconds (changed from 60s to be more responsive)
+    }, 15000); // Refresh every 15 seconds (more frequent to see changes faster)
 
     return () => clearInterval(refreshInterval);
   }, [isReady]);
@@ -83,7 +93,7 @@ export default function ViewPackages() {
 
   const handlePickup = async (packageId: string) => {
     try {
-      // Pick up package using Nostr
+      // Pick up package using local storage
       await pickupPackage(packageId);
 
       // Update local state
@@ -121,10 +131,26 @@ export default function ViewPackages() {
 
   return (
     <div className='container mx-auto px-4 pt-24 pb-8'>
-      <Link href='/' className='flex items-center text-sm mb-6 hover:underline'>
-        <ArrowLeft className='mr-2 h-4 w-4' />
-        Back to Home
-      </Link>
+      <div className='flex justify-between items-center mb-6'>
+        <Link href='/' className='flex items-center text-sm hover:underline'>
+          <ArrowLeft className='mr-2 h-4 w-4' />
+          Back to Home
+        </Link>
+        <div className='flex items-center gap-4'>
+          <Link href='/settings'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='flex items-center gap-1'
+            >
+              <Settings className='h-4 w-4' />
+              Relay Settings
+            </Button>
+          </Link>
+          <NostrStatus />
+        </div>
+      </div>
+      <DebugPanel />
 
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
         <div className='lg:col-span-2'>

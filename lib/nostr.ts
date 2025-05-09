@@ -1,13 +1,18 @@
 import { getUserKeys } from './nostr-keys';
-import type { PackageData, ProfileData } from './nostr-types';
+import { EVENT_KINDS, type PackageData, type ProfileData } from './nostr-types';
 import {
-  getLocalPackages,
+  listEvents,
+  createSignedEvent,
+  publishEvent,
+  getEventById,
+} from './nostr-service';
+import {
   saveLocalPackage,
+  getLocalPackages,
   getMyLocalDeliveries,
   pickupLocalPackage,
   completeLocalDelivery,
   getLocalPackageById,
-  confirmLocalDelivery,
 } from './local-package-service';
 
 // Re-export types for backward compatibility
@@ -26,64 +31,287 @@ export function getUserPubkey(): string {
   return publicKey;
 }
 
-// Create a new package listing using local storage
+// Update the parsePackageFromEvent function to be more robust
+function parsePackageFromEvent(event: any): PackageData | null {
+  try {
+    // Check if event has content
+    if (
+      !event.content ||
+      typeof event.content !== 'string' ||
+      event.content.trim() === ''
+    ) {
+      console.log('Skipping event with empty content:', event.id);
+      return null;
+    }
+
+    // Log the raw content for debugging
+    console.debug(
+      'Raw event content:',
+      event.content.substring(0, 100) +
+        (event.content.length > 100 ? '...' : '')
+    );
+
+    // Try to parse the content
+    let content;
+    try {
+      content = JSON.parse(event.content);
+    } catch (parseError) {
+      console.log(`Invalid JSON in event ${event.id}:`, parseError);
+      return null;
+    }
+
+    // Validate required fields
+    if (
+      !content.title ||
+      !content.pickupLocation ||
+      !content.destination ||
+      !content.cost
+    ) {
+      console.log(`Event ${event.id} is missing required fields:`, content);
+      return null;
+    }
+
+    return {
+      id: event.id,
+      title: content.title,
+      pickupLocation: content.pickupLocation,
+      destination: content.destination,
+      cost: content.cost,
+      description: content.description || '',
+      status: content.status || 'available',
+      pubkey: event.pubkey,
+      created_at: event.created_at,
+      // Parse additional fields if present
+      courier_pubkey: content.courier_pubkey,
+      pickup_time: content.pickup_time,
+      delivery_time: content.delivery_time,
+    };
+  } catch (error) {
+    console.error('Failed to parse package from event:', error);
+    return null;
+  }
+}
+
+// Update the createPackage function to ensure packages are saved to localStorage
 export async function createPackage(
   packageData: Omit<PackageData, 'id' | 'status'>
 ): Promise<string> {
   try {
-    // Save package to local storage
-    const packageId = saveLocalPackage(packageData);
-    console.log('Package created with ID:', packageId);
-    return packageId;
+    // Create the content object
+    const content = {
+      ...packageData,
+      status: 'available',
+    };
+
+    // First save to localStorage to ensure we have a backup
+    const localId = saveLocalPackage(packageData);
+    console.log('Package saved to localStorage with ID:', localId);
+
+    // Try to create and sign the event with Nostr
+    try {
+      // Use simpler tags for better compatibility
+      const event = await createSignedEvent(
+        EVENT_KINDS.PACKAGE,
+        JSON.stringify(content),
+        [['t', 'package']]
+      );
+
+      // Try to publish the event
+      await publishEvent(event);
+
+      console.log('Package created with ID:', event.id);
+      return event.id;
+    } catch (nostrError) {
+      console.error('Nostr error, using localStorage ID instead:', nostrError);
+      return localId;
+    }
   } catch (error) {
     console.error('Failed to create package:', error);
-    throw error;
+    // Last resort fallback
+    return saveLocalPackage(packageData);
   }
 }
 
-// Get all available packages
+// Update the getPackages function to handle null values from parsePackageFromEvent
 export async function getPackages(): Promise<PackageData[]> {
   try {
-    console.log('Fetching packages from local storage...');
-    // Get packages from local storage
-    const packages = getLocalPackages();
-    console.log(`Found ${packages.length} packages in local storage`);
-    return packages;
+    console.log('Fetching packages from Nostr...');
+
+    // Get local packages first
+    const localPackages = getLocalPackages();
+    console.log(`Found ${localPackages.length} local packages`);
+
+    try {
+      // Use a simpler filter format for better compatibility
+      const events = await listEvents(
+        [
+          {
+            kinds: [EVENT_KINDS.PACKAGE],
+            limit: 100,
+          },
+        ],
+        10000
+      );
+
+      console.log(`Found ${events.length} package events from Nostr`);
+
+      if (events.length === 0) {
+        // If no Nostr packages, just return local packages
+        return localPackages;
+      }
+
+      // Parse packages from events and filter out null values
+      const nostrPackages = events
+        .map(parsePackageFromEvent)
+        .filter((pkg): pkg is PackageData => pkg !== null);
+
+      console.log(
+        `Successfully parsed ${nostrPackages.length} out of ${events.length} events`
+      );
+
+      // Combine local and Nostr packages, removing duplicates by ID
+      const allPackages = [...localPackages];
+
+      // Add Nostr packages that aren't already in local packages
+      for (const nostrPkg of nostrPackages) {
+        if (!allPackages.some((pkg) => pkg.id === nostrPkg.id)) {
+          allPackages.push(nostrPkg);
+        }
+      }
+
+      console.log(
+        `Returning ${allPackages.length} total packages (local + Nostr)`
+      );
+      return allPackages;
+    } catch (nostrError) {
+      console.error(
+        'Error fetching from Nostr, returning only local packages:',
+        nostrError
+      );
+      return localPackages;
+    }
   } catch (error) {
     console.error('Failed to fetch packages:', error);
-    return [];
+    return getLocalPackages();
   }
 }
 
 // Get user's active deliveries
 export async function getMyDeliveries(): Promise<PackageData[]> {
   try {
-    console.log('Fetching my deliveries from local storage...');
-    // Get deliveries from local storage
-    const deliveries = getMyLocalDeliveries();
-    console.log(`Found ${deliveries.length} deliveries in local storage`);
-    return deliveries;
+    console.log('Fetching my deliveries from Nostr...');
+
+    // Get delivery events for the current user
+    const events = await listEvents(
+      [
+        {
+          kinds: [EVENT_KINDS.DELIVERY],
+          authors: [getUserPubkey()],
+          limit: 100,
+        },
+      ],
+      10000
+    );
+
+    console.log(`Found ${events.length} delivery events`);
+
+    // Filter and parse deliveries
+    const currentPubkey = getUserPubkey();
+    const myDeliveries = [];
+
+    for (const event of events) {
+      try {
+        const content = JSON.parse(event.content);
+
+        // Only include deliveries for the current user
+        if (content.courier_pubkey === currentPubkey) {
+          // Get the original package event
+          const packageEvent = await getEventById(content.package_id);
+
+          if (packageEvent) {
+            // Combine package and delivery data
+            const packageData = parsePackageFromEvent(packageEvent);
+
+            myDeliveries.push({
+              ...packageData,
+              status: content.status || 'in_transit',
+              courier_pubkey: content.courier_pubkey,
+              pickup_time: content.pickup_time,
+              delivery_time: content.delivery_time,
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing delivery event:', e);
+      }
+    }
+
+    console.log(`Returning ${myDeliveries.length} deliveries`);
+
+    // If no deliveries found in Nostr, try localStorage
+    if (myDeliveries.length === 0) {
+      return getMyLocalDeliveries();
+    }
+
+    return myDeliveries;
   } catch (error) {
     console.error('Failed to fetch deliveries:', error);
-    return [];
+    // Fallback to localStorage if Nostr fails
+    return getMyLocalDeliveries();
   }
 }
 
 // Get a specific package by ID
 export async function getPackageById(id: string): Promise<PackageData | null> {
   try {
-    console.log(`Fetching package with ID: ${id} from local storage`);
-    // Get package from local storage
-    const packageData = getLocalPackageById(id);
-    if (packageData) {
-      console.log('Package found in local storage');
-    } else {
-      console.log('Package not found in local storage');
+    console.log(`Fetching package with ID: ${id} from Nostr`);
+
+    // Get the package event
+    const event = await getEventById(id);
+
+    if (event) {
+      console.log('Package found in Nostr');
+      return parsePackageFromEvent(event);
     }
-    return packageData;
+
+    // If not found as a package, check deliveries
+    const deliveryEvents = await listEvents(
+      [
+        {
+          kinds: [EVENT_KINDS.DELIVERY],
+          '#package_id': [id],
+          limit: 10,
+        },
+      ],
+      5000
+    );
+
+    if (deliveryEvents.length > 0) {
+      const deliveryEvent = deliveryEvents[0];
+      const content = JSON.parse(deliveryEvent.content);
+
+      // Get the original package event
+      const packageEvent = await getEventById(content.package_id);
+
+      if (packageEvent) {
+        const packageData = parsePackageFromEvent(packageEvent);
+
+        return {
+          ...packageData,
+          status: content.status || 'in_transit',
+          courier_pubkey: content.courier_pubkey,
+          pickup_time: content.pickup_time,
+          delivery_time: content.delivery_time,
+        };
+      }
+    }
+
+    console.log('Package not found in Nostr, checking localStorage');
+    return getLocalPackageById(id);
   } catch (error) {
     console.error('Failed to fetch package:', error);
-    return null;
+    // Fallback to localStorage if Nostr fails
+    return getLocalPackageById(id);
   }
 }
 
@@ -91,9 +319,42 @@ export async function getPackageById(id: string): Promise<PackageData | null> {
 export async function pickupPackage(packageId: string): Promise<void> {
   try {
     console.log(`Picking up package with ID: ${packageId}`);
-    // Pick up package in local storage
+
+    // First, pick up the package locally to ensure it's always updated
     pickupLocalPackage(packageId);
-    console.log('Package picked up successfully');
+    console.log('Package picked up in localStorage');
+
+    // Then try to update Nostr
+    try {
+      // Create delivery content
+      const content = {
+        package_id: packageId,
+        status: 'in_transit',
+        courier_pubkey: getUserPubkey(),
+        pickup_time: Math.floor(Date.now() / 1000),
+      };
+
+      // Create and sign the delivery event
+      const event = await createSignedEvent(
+        EVENT_KINDS.DELIVERY,
+        JSON.stringify(content),
+        [
+          ['t', 'delivery'],
+          ['package_id', packageId],
+        ]
+      );
+
+      // Publish the event
+      await publishEvent(event);
+
+      console.log('Package picked up successfully in Nostr');
+    } catch (nostrError) {
+      console.error(
+        "Failed to pick up package in Nostr, but it's picked up in localStorage:",
+        nostrError
+      );
+      // No need to throw here since we already updated localStorage
+    }
   } catch (error) {
     console.error('Failed to pick up package:', error);
     throw error;
@@ -104,9 +365,62 @@ export async function pickupPackage(packageId: string): Promise<void> {
 export async function completeDelivery(packageId: string): Promise<void> {
   try {
     console.log(`Completing delivery for package with ID: ${packageId}`);
-    // Complete delivery in local storage
+
+    // First, complete the delivery locally
     completeLocalDelivery(packageId);
-    console.log('Delivery completed successfully');
+    console.log('Delivery completed in localStorage');
+
+    // Then try to update Nostr
+    try {
+      // Get existing delivery events for this package
+      const deliveryEvents = await listEvents(
+        [
+          {
+            kinds: [EVENT_KINDS.DELIVERY],
+            '#package_id': [packageId],
+            limit: 10,
+          },
+        ],
+        5000
+      );
+
+      if (deliveryEvents.length === 0) {
+        console.log('No delivery events found in Nostr, skipping Nostr update');
+        return;
+      }
+
+      // Get the most recent delivery event
+      const deliveryEvent = deliveryEvents[0];
+      const content = JSON.parse(deliveryEvent.content);
+
+      // Update the content
+      const updatedContent = {
+        ...content,
+        status: 'delivered',
+        delivery_time: Math.floor(Date.now() / 1000),
+      };
+
+      // Create and sign the updated delivery event
+      const event = await createSignedEvent(
+        EVENT_KINDS.DELIVERY,
+        JSON.stringify(updatedContent),
+        [
+          ['t', 'delivery'],
+          ['package_id', packageId],
+        ]
+      );
+
+      // Publish the event
+      await publishEvent(event);
+
+      console.log('Delivery completed successfully in Nostr');
+    } catch (nostrError) {
+      console.error(
+        "Failed to complete delivery in Nostr, but it's completed in localStorage:",
+        nostrError
+      );
+      // No need to throw here since we already updated localStorage
+    }
   } catch (error) {
     console.error('Failed to complete delivery:', error);
     throw error;
@@ -115,37 +429,73 @@ export async function completeDelivery(packageId: string): Promise<void> {
 
 // Confirm delivery (by recipient)
 export async function confirmDelivery(packageId: string): Promise<void> {
-  try {
-    console.log(`Confirming delivery for package with ID: ${packageId}`);
-    // Confirm delivery in local storage
-    confirmLocalDelivery(packageId);
-    console.log('Delivery confirmed successfully');
-  } catch (error) {
-    console.error('Failed to confirm delivery:', error);
-    throw error;
-  }
+  // For now, this is the same as completeDelivery
+  await completeDelivery(packageId);
 }
 
-// Get user profile - simplified for local storage
+// Get user profile
 export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
   try {
     const userPubkey = pubkey || getUserPubkey();
 
-    // Get deliveries to count them
-    const myDeliveries = getMyLocalDeliveries();
-    const deliveryCount = myDeliveries.filter(
-      (d) => d.status === 'delivered'
-    ).length;
+    // Get user's delivery events to count completed deliveries
+    const deliveryEvents = await listEvents(
+      [
+        {
+          kinds: [EVENT_KINDS.DELIVERY],
+          authors: [userPubkey],
+          limit: 50,
+        },
+      ],
+      5000
+    );
 
-    // Return a simple profile
+    // Count completed deliveries
+    const completedDeliveries = deliveryEvents.filter((event) => {
+      try {
+        const content = JSON.parse(event.content);
+        return content.status === 'delivered';
+      } catch (e) {
+        return false;
+      }
+    }).length;
+
+    // Try to get user metadata from kind 0 events
+    const metadataEvents = await listEvents(
+      [
+        {
+          kinds: [0],
+          authors: [userPubkey],
+          limit: 1,
+        },
+      ],
+      3000
+    );
+
+    let name = 'bfleet_user';
+    let displayName = 'Bfleet User';
+    let picture = '';
+
+    if (metadataEvents.length > 0) {
+      try {
+        const metadata = JSON.parse(metadataEvents[0].content);
+        name = metadata.name || name;
+        displayName = metadata.display_name || metadata.displayName || name;
+        picture = metadata.picture || '';
+      } catch (e) {
+        console.error('Error parsing user metadata:', e);
+      }
+    }
+
     return {
       pubkey: userPubkey,
-      name: 'bfleet_user',
-      displayName: 'Bfleet User',
-      followers: 0,
-      following: 0,
-      deliveries: deliveryCount,
-      rating: deliveryCount > 0 ? 4.5 : 0,
+      name,
+      displayName,
+      picture,
+      followers: 0, // Not implemented in MVP
+      following: 0, // Not implemented in MVP
+      deliveries: completedDeliveries,
+      rating: completedDeliveries > 0 ? 4.5 : 0, // Simplified rating for MVP
     };
   } catch (error) {
     console.error('Failed to fetch profile:', error);
@@ -161,7 +511,7 @@ export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
   }
 }
 
-// Update profile - simplified for local storage
+// Update profile
 export async function updateProfile(profileData: {
   name?: string;
   displayName?: string;
@@ -170,6 +520,30 @@ export async function updateProfile(profileData: {
   website?: string;
   nip05?: string;
 }): Promise<void> {
-  // In the MVP, we don't actually store profile data
-  console.log('Profile update would happen here in the future');
+  try {
+    // Create metadata content according to NIP-01
+    const content = {
+      name: profileData.name,
+      display_name: profileData.displayName,
+      picture: profileData.picture,
+      about: profileData.about,
+      website: profileData.website,
+      nip05: profileData.nip05,
+    };
+
+    // Create and sign the metadata event (kind 0)
+    const event = await createSignedEvent(
+      0, // Kind 0 is for metadata
+      JSON.stringify(content),
+      []
+    );
+
+    // Publish the event
+    await publishEvent(event);
+
+    console.log('Profile updated successfully');
+  } catch (error) {
+    console.error('Failed to update profile:', error);
+    throw error;
+  }
 }

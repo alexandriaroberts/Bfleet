@@ -62,6 +62,8 @@ export default function ViewPackages() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<'all' | 'my-packages'>('all');
+  const [pickingUpId, setPickingUpId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchPackages = async () => {
     try {
@@ -127,6 +129,7 @@ export default function ViewPackages() {
   const handlePickup = async (packageId: string) => {
     try {
       console.log(`Attempting to pick up package: ${packageId}`);
+      setPickingUpId(packageId); // Set loading state for this package
 
       // Get the package data first to ensure it exists
       const packageToPickup = packages.find((pkg) => pkg.id === packageId);
@@ -163,6 +166,8 @@ export default function ViewPackages() {
         description: 'Failed to pick up package. Please try again.',
       });
       console.error('Error picking up package:', error);
+    } finally {
+      setPickingUpId(null); // Clear loading state
     }
   };
 
@@ -175,6 +180,8 @@ export default function ViewPackages() {
 
   const handleDeletePackage = async (packageId: string) => {
     try {
+      setDeletingId(packageId); // Set loading state for this package
+
       // Delete package
       await deletePackage(packageId);
 
@@ -193,6 +200,8 @@ export default function ViewPackages() {
         description: 'Failed to delete package. Please try again.',
       });
       console.error('Error deleting package:', error);
+    } finally {
+      setDeletingId(null); // Clear loading state
     }
   };
 
@@ -225,7 +234,7 @@ export default function ViewPackages() {
             <Button
               variant='outline'
               size='sm'
-              className='flex items-center gap-1'
+              className='flex items-center gap-1 cursor-pointer'
             >
               <Settings className='h-4 w-4' />
               Relay Settings
@@ -248,8 +257,9 @@ export default function ViewPackages() {
             Available Packages
           </Button>
           <Button
-            variant={viewMode === 'my-packages' ? 'default' : 'outline'}
+            variant={viewMode === 'my-packages' ? 'outline' : 'default'}
             size='sm'
+            className='cursor-pointer'
             onClick={() => setViewMode('my-packages')}
           >
             My Packages
@@ -282,7 +292,9 @@ export default function ViewPackages() {
               <div>
                 <CardTitle className='flex items-center'>
                   <Package className='mr-2 h-5 w-5' />
-                  {viewMode === 'all' ? 'Available Packages' : 'My Packages'}
+                  <div className='cursor-pointer'>
+                    {viewMode === 'all' ? 'Available Packages' : 'My Packages'}
+                  </div>
                 </CardTitle>
                 <CardDescription>
                   {loading
@@ -327,7 +339,7 @@ export default function ViewPackages() {
                   {filteredPackages.map((pkg) => (
                     <Card
                       key={pkg.id}
-                      className={`cursor-pointer ${
+                      className={`${
                         selectedPackage?.id === pkg.id ? 'border-primary' : ''
                       }`}
                       onClick={() => setSelectedPackage(pkg)}
@@ -367,13 +379,21 @@ export default function ViewPackages() {
                               <Button
                                 size='sm'
                                 variant='destructive'
-                                className='bg-red-500 text-white'
+                                className='bg-red-500 text-white cursor-pointer'
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeletePackage(pkg.id);
                                 }}
+                                disabled={deletingId === pkg.id}
                               >
-                                Delete
+                                {deletingId === pkg.id ? (
+                                  <>
+                                    <div className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2'></div>
+                                    Deleting...
+                                  </>
+                                ) : (
+                                  <div>Delete</div>
+                                )}
                               </Button>
                             ) : (
                               <div className='text-xs text-gray-500'>
@@ -407,8 +427,16 @@ export default function ViewPackages() {
                                   e.stopPropagation();
                                   handlePickup(pkg.id);
                                 }}
+                                disabled={pickingUpId === pkg.id}
                               >
-                                Pick Up
+                                {pickingUpId === pkg.id ? (
+                                  <>
+                                    <div className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2'></div>
+                                    Picking Up...
+                                  </>
+                                ) : (
+                                  'Pick Up'
+                                )}
                               </Button>
                             )
                           )}

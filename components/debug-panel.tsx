@@ -88,7 +88,7 @@ export function DebugPanel() {
         <Button
           variant='outline'
           size='sm'
-          className='flex items-center gap-1 mb-2'
+          className='flex items-center gap-1 mb-2 cursor-pointer'
         >
           <Bug className='h-4 w-4' />
           Debug Panel

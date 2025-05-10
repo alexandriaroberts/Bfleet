@@ -48,7 +48,9 @@ export function NostrConnectButton() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button className={`flex items-center gap-2 ${gradientButtonClass}`}>
+          <Button
+            className={`flex items-center gap-2 cursor-pointer ${gradientButtonClass}`}
+          >
             <User className='h-4 w-4' />
             {npub}
           </Button>
@@ -58,12 +60,12 @@ export function NostrConnectButton() {
             <DropdownMenuLabel>Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <Link href='/profile'>
-              <DropdownMenuItem>
+              <DropdownMenuItem className='cursor-pointer'>
                 <User className='mr-2 h-4 w-4' />
                 <span>Profile</span>
               </DropdownMenuItem>
             </Link>
-            <DropdownMenuItem onClick={logout}>
+            <DropdownMenuItem onClick={logout} className='cursor-pointer'>
               <LogOut className='mr-2 h-4 w-4' />
               <span>Logout</span>
             </DropdownMenuItem>

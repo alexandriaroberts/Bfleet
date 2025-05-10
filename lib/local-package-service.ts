@@ -122,7 +122,7 @@ export function getMyLocalDeliveries(): PackageData[] {
   }
 }
 
-// Update the pickupLocalPackage function to handle packages that might not be in local storage
+// Update the pickupLocalPackage function to ensure packages are properly removed
 export function pickupLocalPackage(
   packageId: string,
   packageData?: PackageData
@@ -141,14 +141,11 @@ export function pickupLocalPackage(
       throw new Error('Package not found');
     }
 
-    // Remove from available packages if it exists there
-    if (packages.some((pkg) => pkg.id === packageId)) {
-      const updatedPackages = packages.filter((pkg) => pkg.id !== packageId);
-      localStorage.setItem(
-        PACKAGES_STORAGE_KEY,
-        JSON.stringify(updatedPackages)
-      );
-    }
+    // IMPORTANT: Always remove from available packages regardless of whether it exists there
+    // This ensures consistency even if there are duplicate entries
+    const updatedPackages = packages.filter((pkg) => pkg.id !== packageId);
+    localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(updatedPackages));
+    console.log(`Removed package ${packageId} from available packages`);
 
     // Add to my deliveries
     const allDeliveries = JSON.parse(

@@ -12,7 +12,11 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, RefreshCw, Truck } from 'lucide-react';
 import Link from 'next/link';
-import { getMyDeliveries, completeDelivery } from '@/lib/nostr';
+import {
+  getMyDeliveries,
+  completeDelivery,
+  getEffectiveStatus,
+} from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { QRCodeSVG } from 'qrcode.react';
 import { debugStorage } from '@/lib/local-package-service';
@@ -40,6 +44,7 @@ export default function MyDeliveries() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   // Update the fetchDeliveries function to ensure proper filtering and logging
   const fetchDeliveries = async () => {
@@ -68,16 +73,19 @@ export default function MyDeliveries() {
 
       // Log the status of each package for debugging
       pkgs.forEach((pkg) => {
-        console.log(`Package ${pkg.id}: status=${pkg.status}`);
+        console.log(
+          `Package ${pkg.id}: status=${
+            pkg.status
+          }, effective=${getEffectiveStatus(pkg)}`
+        );
       });
 
-      // Only show in_transit deliveries - this should be redundant since getMyDeliveries
-      // should already filter, but we'll do it again to be sure
+      // Only show in_transit deliveries using the effective status
       const activeDeliveries = pkgs.filter(
-        (pkg) => pkg.status === 'in_transit'
+        (pkg) => getEffectiveStatus(pkg) === 'in_transit'
       );
       console.log(
-        `Filtered to ${activeDeliveries.length} active deliveries with status="in_transit"`
+        `Filtered to ${activeDeliveries.length} active deliveries with effective status="in_transit"`
       );
 
       setDeliveries(activeDeliveries);
@@ -117,6 +125,13 @@ export default function MyDeliveries() {
       fetchDeliveries();
     }, 30000); // Refresh every 30 seconds
 
+    // Force a complete status refresh once when the component mounts
+    import('@/lib/nostr').then(({ forceStatusRefresh }) => {
+      forceStatusRefresh().catch((error) => {
+        console.error('Error during initial status refresh:', error);
+      });
+    });
+
     return () => clearInterval(refreshInterval);
   }, [isReady]);
 
@@ -124,6 +139,7 @@ export default function MyDeliveries() {
   const handleComplete = async (packageId: string) => {
     try {
       console.log(`Marking package ${packageId} as delivered`);
+      setCompletingId(packageId); // Set the loading state for this specific package
 
       // Complete delivery using Nostr
       await completeDelivery(packageId);
@@ -163,6 +179,8 @@ export default function MyDeliveries() {
       toast.error('Error', {
         description: 'Failed to complete delivery. Please try again.',
       });
+    } finally {
+      setCompletingId(null); // Clear the loading state
     }
   };
 
@@ -298,8 +316,16 @@ export default function MyDeliveries() {
                                 e.stopPropagation();
                                 handleComplete(delivery.id);
                               }}
+                              disabled={completingId === delivery.id}
                             >
-                              Complete
+                              {completingId === delivery.id ? (
+                                <>
+                                  <div className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2'></div>
+                                  Completing...
+                                </>
+                              ) : (
+                                'Complete'
+                              )}
                             </Button>
                           </div>
                         </div>
@@ -390,8 +416,16 @@ export default function MyDeliveries() {
                       onClick={() => handleComplete(selectedDelivery.id)}
                       variant='outline'
                       className='flex-1'
+                      disabled={completingId === selectedDelivery.id}
                     >
-                      Mark Delivered
+                      {completingId === selectedDelivery.id ? (
+                        <>
+                          <div className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2'></div>
+                          Completing...
+                        </>
+                      ) : (
+                        'Mark Delivered'
+                      )}
                     </Button>
                   </div>
                 </div>

@@ -16,6 +16,10 @@ import {
   deleteLocalPackage,
   getAllLocalDeliveries,
 } from './local-package-service';
+import { getRelays } from './nostr-service';
+// Define storage keys directly (matching the ones in local-package-service.ts)
+const PACKAGES_STORAGE_KEY = 'shared_packages_v1';
+const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
 
 // Re-export types for backward compatibility
 export type { PackageData, ProfileData };
@@ -33,7 +37,7 @@ export function getUserPubkey(): string {
   return publicKey;
 }
 
-// Update the parsePackageFromEvent function to be more robust
+// Update the parsePackageFromEvent function to be more robust against non-JSON content
 function parsePackageFromEvent(event: any): PackageData | null {
   try {
     // Check if event has content
@@ -46,16 +50,15 @@ function parsePackageFromEvent(event: any): PackageData | null {
       return null;
     }
 
-    // Log the raw content for debugging
-    console.debug(
-      'Raw event content:',
-      event.content.substring(0, 100) +
-        (event.content.length > 100 ? '...' : '')
-    );
-
     // Try to parse the content
     let content;
     try {
+      // First check if the content starts with a { character to avoid obvious non-JSON
+      if (!event.content.trim().startsWith('{')) {
+        console.log(`Skipping non-JSON content in event ${event.id}`);
+        return null;
+      }
+
       content = JSON.parse(event.content);
     } catch (parseError) {
       console.log(`Invalid JSON in event ${event.id}:`, parseError);
@@ -91,6 +94,20 @@ function parsePackageFromEvent(event: any): PackageData | null {
   } catch (error) {
     console.error('Failed to parse package from event:', error);
     return null;
+  }
+}
+
+// Add this helper function to safely parse JSON with a fallback
+function safeParseJSON(jsonString: string, fallback: any = null): any {
+  try {
+    // First check if the string starts with a { character to avoid obvious non-JSON
+    if (!jsonString.trim().startsWith('{')) {
+      return fallback;
+    }
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.log('Failed to parse JSON:', e);
+    return fallback;
   }
 }
 
@@ -263,55 +280,52 @@ export async function getPackages(): Promise<PackageData[]> {
       // Process delivery events to update package status
       for (const event of deliveryEvents) {
         try {
-          const content = JSON.parse(event.content);
-          if (content.package_id) {
-            // Find the package in our list
-            const packageIndex = allPackages.findIndex(
-              (pkg) => pkg.id === content.package_id
-            );
-            if (packageIndex >= 0) {
-              // Update the package with delivery info
-              allPackages[packageIndex] = {
-                ...allPackages[packageIndex],
-                status: content.status || allPackages[packageIndex].status,
-                courier_pubkey:
-                  content.courier_pubkey ||
-                  allPackages[packageIndex].courier_pubkey,
-                pickup_time:
-                  content.pickup_time || allPackages[packageIndex].pickup_time,
-                delivery_time:
-                  content.delivery_time ||
-                  allPackages[packageIndex].delivery_time,
-              };
-            }
+          const content = safeParseJSON(event.content);
+          if (!content || !content.package_id) continue;
 
-            // Also update the status map
-            if (packageStatusMap.has(content.package_id)) {
-              const existingDelivery = packageStatusMap.get(
-                content.package_id
-              )!;
+          // Find the package in our list
+          const packageIndex = allPackages.findIndex(
+            (pkg) => pkg.id === content.package_id
+          );
+          if (packageIndex >= 0) {
+            // Update the package with delivery info
+            allPackages[packageIndex] = {
+              ...allPackages[packageIndex],
+              status: content.status || allPackages[packageIndex].status,
+              courier_pubkey:
+                content.courier_pubkey ||
+                allPackages[packageIndex].courier_pubkey,
+              pickup_time:
+                content.pickup_time || allPackages[packageIndex].pickup_time,
+              delivery_time:
+                content.delivery_time ||
+                allPackages[packageIndex].delivery_time,
+            };
+          }
+
+          // Also update the status map
+          if (packageStatusMap.has(content.package_id)) {
+            const existingDelivery = packageStatusMap.get(content.package_id)!;
+            packageStatusMap.set(content.package_id, {
+              ...existingDelivery,
+              status: content.status || existingDelivery.status,
+              courier_pubkey:
+                content.courier_pubkey || existingDelivery.courier_pubkey,
+              pickup_time: content.pickup_time || existingDelivery.pickup_time,
+              delivery_time:
+                content.delivery_time || existingDelivery.delivery_time,
+            });
+          } else {
+            // If we don't have this delivery in our map yet, try to find the package
+            const pkg = allPackages.find((p) => p.id === content.package_id);
+            if (pkg) {
               packageStatusMap.set(content.package_id, {
-                ...existingDelivery,
-                status: content.status || existingDelivery.status,
-                courier_pubkey:
-                  content.courier_pubkey || existingDelivery.courier_pubkey,
-                pickup_time:
-                  content.pickup_time || existingDelivery.pickup_time,
-                delivery_time:
-                  content.delivery_time || existingDelivery.delivery_time,
+                ...pkg,
+                status: content.status || 'in_transit',
+                courier_pubkey: content.courier_pubkey,
+                pickup_time: content.pickup_time,
+                delivery_time: content.delivery_time,
               });
-            } else {
-              // If we don't have this delivery in our map yet, try to find the package
-              const pkg = allPackages.find((p) => p.id === content.package_id);
-              if (pkg) {
-                packageStatusMap.set(content.package_id, {
-                  ...pkg,
-                  status: content.status || 'in_transit',
-                  courier_pubkey: content.courier_pubkey,
-                  pickup_time: content.pickup_time,
-                  delivery_time: content.delivery_time,
-                });
-              }
             }
           }
         } catch (e) {
@@ -452,7 +466,8 @@ export async function getMyDeliveries(): Promise<PackageData[]> {
 
       for (const event of events) {
         try {
-          const content = JSON.parse(event.content);
+          const content = safeParseJSON(event.content);
+          if (!content) continue;
 
           // Only include deliveries for the current user that are in_transit
           if (
@@ -620,96 +635,108 @@ export async function completeDelivery(packageId: string): Promise<void> {
   try {
     console.log(`Completing delivery for package with ID: ${packageId}`);
 
-    // First, complete the delivery locally
+    // First, complete locally
     completeLocalDelivery(packageId);
     console.log('Delivery completed in localStorage');
 
-    // Then try to update Nostr
-    try {
-      // Get existing delivery events for this package
-      const deliveryEvents = await listEvents(
-        [
-          {
-            kinds: [EVENT_KINDS.DELIVERY],
-            '#package_id': [packageId],
-            limit: 10,
-          },
-        ],
-        5000
-      );
+    // Try multiple relays with retry logic
+    const relays = getRelays();
+    let successCount = 0;
 
-      if (deliveryEvents.length === 0) {
-        console.log('No delivery events found in Nostr, creating a new one');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        console.log(`Attempt ${attempt + 1} to update Nostr relays`);
 
-        // Create a new delivery event with status=delivered
-        const content = {
-          package_id: packageId,
-          status: 'delivered',
-          courier_pubkey: getUserPubkey(),
-          pickup_time: Math.floor(Date.now() / 1000) - 3600, // Assume picked up an hour ago
-          delivery_time: Math.floor(Date.now() / 1000),
-        };
+        // Get existing delivery events for this package
+        const deliveryEvents = await listEvents(
+          [
+            {
+              kinds: [EVENT_KINDS.DELIVERY],
+              '#package_id': [packageId],
+              limit: 10,
+            },
+          ],
+          5000
+        );
 
-        // Create and sign the delivery event
+        // Create updated content
+        let content;
+
+        if (deliveryEvents.length === 0) {
+          console.log('No delivery events found in Nostr, creating a new one');
+          content = {
+            package_id: packageId,
+            status: 'delivered',
+            courier_pubkey: getUserPubkey(),
+            pickup_time: Math.floor(Date.now() / 1000) - 3600, // Assume picked up an hour ago
+            delivery_time: Math.floor(Date.now() / 1000),
+            update_id: `${Date.now()}-${Math.random()
+              .toString(36)
+              .substring(2, 9)}`,
+          };
+        } else {
+          // Get the most recent delivery event
+          const deliveryEvent = deliveryEvents[0];
+
+          try {
+            content = safeParseJSON(deliveryEvent.content, {
+              package_id: packageId,
+              status: 'in_transit',
+              courier_pubkey: getUserPubkey(),
+            });
+          } catch (error) {
+            console.error('Failed to parse delivery event content:', error);
+            content = {
+              package_id: packageId,
+              status: 'in_transit',
+              courier_pubkey: getUserPubkey(),
+            };
+          }
+
+          // Update the content
+          content = {
+            ...content,
+            status: 'delivered',
+            delivery_time: Math.floor(Date.now() / 1000),
+            update_id: `${Date.now()}-${Math.random()
+              .toString(36)
+              .substring(2, 9)}`,
+          };
+        }
+
+        console.log('Updating delivery event with new content:', content);
+
+        // Create and sign the updated delivery event
         const event = await createSignedEvent(
           EVENT_KINDS.DELIVERY,
           JSON.stringify(content),
           [
             ['t', 'delivery'],
             ['package_id', packageId],
+            ['status', 'delivered'], // Add explicit tag for better filtering
           ]
         );
 
-        // Publish the event
-        await publishEvent(event);
-        console.log('Created new delivery event with status=delivered');
-        return;
-      }
+        // Try to publish to all relays
+        const results = await publishEvent(event);
+        successCount = results.filter((r) => !r.startsWith('failed:')).length;
 
-      // Get the most recent delivery event
-      const deliveryEvent = deliveryEvents[0];
-      let content;
+        if (successCount > 0) {
+          console.log(
+            `Successfully published to ${successCount}/${relays.length} relays`
+          );
+          break; // At least some relays got the update
+        }
 
-      try {
-        content = JSON.parse(deliveryEvent.content);
+        // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (error) {
-        console.error('Failed to parse delivery event content:', error);
-        content = {
-          package_id: packageId,
-          status: 'in_transit',
-          courier_pubkey: getUserPubkey(),
-        };
+        console.error(`Attempt ${attempt + 1} failed:`, error);
       }
+    }
 
-      // Update the content
-      const updatedContent = {
-        ...content,
-        status: 'delivered',
-        delivery_time: Math.floor(Date.now() / 1000),
-      };
-
-      console.log('Updating delivery event with new content:', updatedContent);
-
-      // Create and sign the updated delivery event
-      const event = await createSignedEvent(
-        EVENT_KINDS.DELIVERY,
-        JSON.stringify(updatedContent),
-        [
-          ['t', 'delivery'],
-          ['package_id', packageId],
-        ]
-      );
-
-      // Publish the event
-      await publishEvent(event);
-
-      console.log('Delivery completed successfully in Nostr');
-    } catch (nostrError) {
-      console.error(
-        "Failed to complete delivery in Nostr, but it's completed in localStorage:",
-        nostrError
-      );
-      // No need to throw here since we already updated localStorage
+    if (successCount === 0) {
+      console.warn('Could not update any relays, but local storage is updated');
     }
   } catch (error) {
     console.error('Failed to complete delivery:', error);
@@ -835,5 +862,297 @@ export async function updateProfile(profileData: {
   } catch (error) {
     console.error('Failed to update profile:', error);
     throw error;
+  }
+}
+
+// Status verification system
+export async function verifyPackageStatuses(): Promise<void> {
+  try {
+    console.log('Starting package status verification...');
+
+    // Get all local packages and deliveries
+    const localPackages = getLocalPackages();
+    const localDeliveries = getAllLocalDeliveries();
+
+    console.log(
+      `Verifying ${localPackages.length} packages and ${localDeliveries.length} deliveries`
+    );
+
+    // Check Nostr for updates on these packages
+    const packageIds = [
+      ...localPackages.map((p) => p.id),
+      ...localDeliveries.map((d) => d.id),
+    ];
+
+    // Remove duplicates
+    const uniquePackageIds = [...new Set(packageIds)];
+    console.log(`Checking ${uniquePackageIds.length} unique package IDs`);
+
+    // Batch into groups of 10 to avoid overloading
+    for (let i = 0; i < uniquePackageIds.length; i += 10) {
+      const batch = uniquePackageIds.slice(i, i + 10);
+      console.log(`Processing batch ${i / 10 + 1}: ${batch.join(', ')}`);
+
+      // Query for delivery events for these packages
+      const events = await listEvents(
+        [
+          {
+            kinds: [EVENT_KINDS.DELIVERY],
+            '#package_id': batch,
+            limit: 50,
+          },
+        ],
+        5000
+      );
+
+      console.log(`Found ${events.length} delivery events for this batch`);
+
+      // Process events to update local status
+      for (const event of events) {
+        try {
+          const content = JSON.parse(event.content);
+          if (content.package_id && content.status) {
+            console.log(
+              `Found status update for package ${content.package_id}: ${content.status}`
+            );
+            // Update local storage with the latest status
+            updateLocalPackageStatus(
+              content.package_id,
+              content.status,
+              content
+            );
+          }
+        } catch (e) {
+          console.error('Error processing event:', e);
+        }
+      }
+    }
+
+    console.log('Package status verification complete');
+  } catch (error) {
+    console.error('Failed to verify package statuses:', error);
+  }
+}
+
+// Helper function to update local storage
+function updateLocalPackageStatus(
+  packageId: string,
+  status: string,
+  data: any
+): void {
+  try {
+    // Update in available packages
+    const packages = JSON.parse(
+      localStorage.getItem(PACKAGES_STORAGE_KEY) || '[]'
+    );
+    let updated = false;
+
+    for (let i = 0; i < packages.length; i++) {
+      if (packages[i].id === packageId) {
+        console.log(
+          `Updating package ${packageId} in shared_packages_v1: ${packages[i].status} -> ${status}`
+        );
+        packages[i].status = status;
+        if (data.courier_pubkey)
+          packages[i].courier_pubkey = data.courier_pubkey;
+        if (data.pickup_time) packages[i].pickup_time = data.pickup_time;
+        if (data.delivery_time) packages[i].delivery_time = data.delivery_time;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(packages));
+    }
+
+    // Update in deliveries
+    const deliveries = JSON.parse(
+      localStorage.getItem(MY_DELIVERIES_STORAGE_KEY) || '[]'
+    );
+    updated = false;
+
+    for (let i = 0; i < deliveries.length; i++) {
+      if (deliveries[i].id === packageId) {
+        console.log(
+          `Updating package ${packageId} in my_deliveries_v2: ${deliveries[i].status} -> ${status}`
+        );
+        deliveries[i].status = status;
+        if (data.courier_pubkey)
+          deliveries[i].courier_pubkey = data.courier_pubkey;
+        if (data.pickup_time) deliveries[i].pickup_time = data.pickup_time;
+        if (data.delivery_time)
+          deliveries[i].delivery_time = data.delivery_time;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      localStorage.setItem(
+        MY_DELIVERIES_STORAGE_KEY,
+        JSON.stringify(deliveries)
+      );
+    }
+  } catch (error) {
+    console.error('Failed to update local package status:', error);
+  }
+}
+
+// Helper function to get the most accurate status of a package
+export function getEffectiveStatus(
+  pkg: PackageData
+): 'available' | 'in_transit' | 'delivered' {
+  // If it has a delivery_time, it should be considered delivered regardless of status field
+  if (pkg.delivery_time && pkg.delivery_time > 0) {
+    return 'delivered';
+  }
+
+  // If it has a pickup_time but no delivery_time, it should be in_transit
+  if (
+    pkg.pickup_time &&
+    pkg.pickup_time > 0 &&
+    (!pkg.delivery_time || pkg.delivery_time === 0)
+  ) {
+    return 'in_transit';
+  }
+
+  // Otherwise use the status field
+  return pkg.status;
+}
+
+// Force a complete refresh of package status
+export async function forceStatusRefresh(): Promise<void> {
+  try {
+    console.log('Starting forced status refresh...');
+
+    // Get all packages and deliveries from localStorage
+    const packagesJson = localStorage.getItem('shared_packages_v1') || '[]';
+    const deliveriesJson = localStorage.getItem('my_deliveries_v2') || '[]';
+
+    const packages = JSON.parse(packagesJson);
+    const deliveries = JSON.parse(deliveriesJson);
+
+    console.log(
+      `Found ${packages.length} packages and ${deliveries.length} deliveries in localStorage`
+    );
+
+    // Get all package IDs
+    const packageIds = [
+      ...packages.map((pkg: any) => pkg.id),
+      ...deliveries.map((del: any) => del.id),
+    ];
+
+    // Remove duplicates
+    const uniqueIds = [...new Set(packageIds)];
+    console.log(`Processing ${uniqueIds.length} unique package IDs`);
+
+    // Import required functions
+    const { listEvents, EVENT_KINDS } = await import('./nostr-service');
+
+    // Fetch all delivery events for these packages
+    const events = await listEvents(
+      [
+        {
+          kinds: [EVENT_KINDS.DELIVERY],
+          limit: 200,
+        },
+      ],
+      10000
+    );
+
+    console.log(`Found ${events.length} delivery events`);
+
+    // Process each event to find the latest status for each package
+    const latestStatusMap = new Map();
+
+    for (const event of events) {
+      try {
+        const content = safeParseJSON(event.content);
+        if (!content || !content.package_id) continue;
+
+        // If we don't have this package ID in our map yet, or this event is newer
+        if (
+          !latestStatusMap.has(content.package_id) ||
+          latestStatusMap.get(content.package_id).created_at < event.created_at
+        ) {
+          latestStatusMap.set(content.package_id, {
+            status: content.status,
+            courier_pubkey: content.courier_pubkey,
+            pickup_time: content.pickup_time,
+            delivery_time: content.delivery_time,
+            created_at: event.created_at,
+          });
+        }
+      } catch (e) {
+        console.error('Error processing event:', e);
+      }
+    }
+
+    // Update packages in localStorage
+    let packagesUpdated = 0;
+    let deliveriesUpdated = 0;
+
+    // Update packages
+    for (let i = 0; i < packages.length; i++) {
+      const pkg = packages[i];
+      if (latestStatusMap.has(pkg.id)) {
+        const latestStatus = latestStatusMap.get(pkg.id);
+
+        // Only update if the status is different
+        if (pkg.status !== latestStatus.status) {
+          console.log(
+            `Updating package ${pkg.id}: ${pkg.status} -> ${latestStatus.status}`
+          );
+          packages[i] = {
+            ...pkg,
+            status: latestStatus.status,
+            courier_pubkey: latestStatus.courier_pubkey || pkg.courier_pubkey,
+            pickup_time: latestStatus.pickup_time || pkg.pickup_time,
+            delivery_time: latestStatus.delivery_time || pkg.delivery_time,
+          };
+          packagesUpdated++;
+        }
+      }
+    }
+
+    // Update deliveries
+    for (let i = 0; i < deliveries.length; i++) {
+      const delivery = deliveries[i];
+      if (latestStatusMap.has(delivery.id)) {
+        const latestStatus = latestStatusMap.get(delivery.id);
+
+        // Only update if the status is different
+        if (delivery.status !== latestStatus.status) {
+          console.log(
+            `Updating delivery ${delivery.id}: ${delivery.status} -> ${latestStatus.status}`
+          );
+          deliveries[i] = {
+            ...delivery,
+            status: latestStatus.status,
+            courier_pubkey:
+              latestStatus.courier_pubkey || delivery.courier_pubkey,
+            pickup_time: latestStatus.pickup_time || delivery.pickup_time,
+            delivery_time: latestStatus.delivery_time || delivery.delivery_time,
+          };
+          deliveriesUpdated++;
+        }
+      }
+    }
+
+    // Save updated data back to localStorage
+    if (packagesUpdated > 0) {
+      localStorage.setItem('shared_packages_v1', JSON.stringify(packages));
+    }
+
+    if (deliveriesUpdated > 0) {
+      localStorage.setItem('my_deliveries_v2', JSON.stringify(deliveries));
+    }
+
+    console.log(
+      `Status refresh complete. Updated ${packagesUpdated} packages and ${deliveriesUpdated} deliveries.`
+    );
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Error in forceStatusRefresh:', error);
+    return Promise.reject(error);
   }
 }

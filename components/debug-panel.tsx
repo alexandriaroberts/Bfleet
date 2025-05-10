@@ -17,7 +17,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { ChevronDown, ChevronUp, Bug } from 'lucide-react';
+import { ChevronDown, ChevronUp, Bug, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import { forceStatusRefresh } from '@/lib/nostr';
 
 export function DebugPanel() {
   const [isOpen, setIsOpen] = useState(false);
@@ -25,6 +27,7 @@ export function DebugPanel() {
     Record<string, boolean | null>
   >({});
   const [isChecking, setIsChecking] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [localData, setLocalData] = useState<any>(null);
 
   const checkRelays = async () => {
@@ -59,6 +62,24 @@ export function DebugPanel() {
     };
     setLocalData(data);
     debugStorage(); // Also log to console
+  };
+
+  const handleForceRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await forceStatusRefresh();
+      toast.success('Status Refresh Complete', {
+        description: 'Package statuses have been refreshed from Nostr',
+      });
+      // Update local data display
+      showLocalStorage();
+    } catch (error) {
+      toast.error('Refresh Failed', {
+        description: 'Could not refresh package statuses',
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -153,6 +174,24 @@ export function DebugPanel() {
                   </div>
                 </div>
               )}
+            </div>
+            <div>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleForceRefresh}
+                disabled={isRefreshing}
+                className='mb-2 flex items-center gap-1'
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+                {isRefreshing ? 'Refreshing...' : 'Force Status Refresh'}
+              </Button>
+              <p className='text-xs text-gray-500'>
+                This will fetch all delivery events from Nostr and update local
+                storage with the latest status.
+              </p>
             </div>
           </CardContent>
         </Card>

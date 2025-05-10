@@ -18,7 +18,12 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import Link from 'next/link';
-import { getPackages, pickupPackage, deletePackage } from '@/lib/nostr';
+import {
+  getPackages,
+  pickupPackage,
+  deletePackage,
+  getEffectiveStatus,
+} from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { debugStorage } from '@/lib/local-package-service';
 import dynamic from 'next/dynamic';
@@ -93,14 +98,24 @@ export default function ViewPackages() {
   useEffect(() => {
     if (!isReady) return;
 
+    // Initial fetch
     fetchPackages();
 
-    // Set up a refresh interval to periodically check for new packages
-    const refreshInterval = setInterval(() => {
+    // Set up regular fetches
+    const fetchInterval = setInterval(() => {
       fetchPackages();
-    }, 15000); // Refresh every 15 seconds (more frequent to see changes faster)
+    }, 15000); // Refresh every 15 seconds
 
-    return () => clearInterval(refreshInterval);
+    // Force a complete status refresh once when the component mounts
+    import('@/lib/nostr').then(({ forceStatusRefresh }) => {
+      forceStatusRefresh().catch((error) => {
+        console.error('Error during initial status refresh:', error);
+      });
+    });
+
+    return () => {
+      clearInterval(fetchInterval);
+    };
   }, [isReady]);
 
   const handleRefresh = () => {
@@ -108,6 +123,7 @@ export default function ViewPackages() {
     fetchPackages();
   };
 
+  // Update the handlePickup function to ensure packages are properly removed
   const handlePickup = async (packageId: string) => {
     try {
       console.log(`Attempting to pick up package: ${packageId}`);
@@ -126,27 +142,12 @@ export default function ViewPackages() {
       // Pick up package
       await pickupPackage(packageId);
 
-      // Update local state - only remove from view if it's not the user's own package
-      if (packageToPickup.pubkey !== publicKey) {
-        setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
+      // IMPORTANT: Always remove the package from the view immediately
+      // This ensures the UI is updated even if Nostr events are delayed
+      setPackages((prev) => prev.filter((pkg) => pkg.id !== packageId));
 
-        if (selectedPackage?.id === packageId) {
-          setSelectedPackage(null);
-        }
-      } else {
-        // If it's the user's own package, just update its status
-        setPackages((prev) =>
-          prev.map((pkg) =>
-            pkg.id === packageId
-              ? {
-                  ...pkg,
-                  status: 'in_transit',
-                  courier_pubkey: publicKey,
-                  pickup_time: Math.floor(Date.now() / 1000),
-                }
-              : pkg
-          )
-        );
+      if (selectedPackage?.id === packageId) {
+        setSelectedPackage(null);
       }
 
       toast.success('Package Picked Up', {
@@ -239,7 +240,7 @@ export default function ViewPackages() {
         <h1 className='text-2xl font-bold'>Packages</h1>
         <div className='flex gap-2'>
           <Button
-            variant={viewMode === 'all' ? 'default' : 'outline'}
+            variant={viewMode === 'all' ? 'outline' : 'default'}
             size='sm'
             className='cursor-pointer'
             onClick={() => setViewMode('all')}
@@ -334,7 +335,7 @@ export default function ViewPackages() {
                       <CardContent className='p-4'>
                         <div className='flex items-center justify-between mb-2'>
                           <div className='font-medium'>{pkg.title}</div>
-                          {pkg.status === 'in_transit' && (
+                          {getEffectiveStatus(pkg) === 'in_transit' && (
                             <Badge
                               variant='outline'
                               className='bg-blue-50 text-blue-700 border-blue-200'
@@ -343,7 +344,7 @@ export default function ViewPackages() {
                               In Transit
                             </Badge>
                           )}
-                          {pkg.status === 'delivered' && (
+                          {getEffectiveStatus(pkg) === 'delivered' && (
                             <Badge
                               variant='outline'
                               className='bg-green-50 text-green-700 border-green-200'

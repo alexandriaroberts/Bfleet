@@ -48,11 +48,17 @@ export async function checkRelay(
 ): Promise<boolean> {
   return new Promise((resolve) => {
     try {
+      // Detect Firefox for longer timeout
+      const isFirefox =
+        typeof navigator !== 'undefined' &&
+        navigator.userAgent.includes('Firefox');
+      const adjustedTimeout = isFirefox ? timeoutMs * 1.5 : timeoutMs;
+
       const ws = new WebSocket(relay);
       const timeoutId = setTimeout(() => {
         ws.close();
         resolve(false);
-      }, timeoutMs);
+      }, adjustedTimeout);
 
       ws.onopen = () => {
         clearTimeout(timeoutId);
@@ -97,7 +103,7 @@ export async function getWorkingRelays(): Promise<string[]> {
   return workingRelays;
 }
 
-// Update the listEvents function to add more debugging
+// Update the listEvents function to filter out non-package/delivery events
 export async function listEvents(
   filters: Filter[],
   timeoutMs = 5000
@@ -121,7 +127,72 @@ export async function listEvents(
     console.log('Using default filter:', fixedFilter);
   }
 
-  return new Promise((resolve) => {
+  // Add retry logic
+  let retries = 0;
+  const maxRetries = 3;
+
+  while (retries < maxRetries) {
+    try {
+      console.log(`Attempt ${retries + 1} to fetch events`);
+      const events = await fetchEventsWithTimeout(
+        relays,
+        fixedFilter,
+        timeoutMs
+      );
+
+      // Filter out events that are likely not related to our application
+      // This helps avoid parsing errors with non-JSON content
+      const filteredEvents = events.filter((event) => {
+        // If we're looking for packages or deliveries, make sure the content looks like JSON
+        if (
+          (fixedFilter.kinds?.includes(EVENT_KINDS.PACKAGE) ||
+            fixedFilter.kinds?.includes(EVENT_KINDS.DELIVERY)) &&
+          typeof event.content === 'string'
+        ) {
+          const trimmedContent = event.content.trim();
+          return trimmedContent.startsWith('{') && trimmedContent.endsWith('}');
+        }
+        return true;
+      });
+
+      console.log(
+        `Filtered ${events.length - filteredEvents.length} non-JSON events`
+      );
+
+      if (filteredEvents.length > 0) {
+        console.log(
+          `Successfully fetched ${filteredEvents.length} events on attempt ${
+            retries + 1
+          }`
+        );
+        return filteredEvents;
+      }
+      retries++;
+      // Wait a bit before retrying
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error(`Error on attempt ${retries + 1}:`, error);
+      retries++;
+      if (retries >= maxRetries) {
+        console.log('Max retries reached, returning empty array');
+        return [];
+      }
+      // Wait a bit before retrying
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  console.log('No events found after all retries');
+  return [];
+}
+
+// Helper function to fetch events with a timeout
+async function fetchEventsWithTimeout(
+  relays: string[],
+  filter: Filter,
+  timeoutMs: number
+): Promise<Event[]> {
+  return new Promise((resolve, reject) => {
     const events: Event[] = [];
     let timeoutId: NodeJS.Timeout;
 
@@ -139,7 +210,7 @@ export async function listEvents(
         console.log('Fetching events with pool.get...');
         // Method 1: Try using get (most compatible)
         pool
-          .get(relays, fixedFilter)
+          .get(relays, filter)
           .then((foundEvents) => {
             console.log('pool.get returned:', foundEvents ? 'data' : 'null');
             if (foundEvents) {
@@ -156,26 +227,58 @@ export async function listEvents(
           })
           .catch((error) => {
             console.error('Error using pool.get:', error);
-            // Don't resolve here, let the timeout handle it or try other methods
+            clearTimeout(timeoutId);
+            reject(error);
           });
       } catch (error) {
-        console.error('Error in listEvents:', error);
-        // Don't resolve here, let the timeout handle it
+        console.error('Error in fetchEventsWithTimeout:', error);
+        clearTimeout(timeoutId);
+        reject(error);
       }
     } catch (error) {
-      console.error('Error in listEvents:', error);
+      console.error('Error in fetchEventsWithTimeout:', error);
       clearTimeout(timeoutId!);
-      resolve(events);
+      reject(error);
     }
   });
 }
 
-// Get a specific event by ID
+// Get a specific event by ID with retry logic
 export async function getEventById(id: string): Promise<Event | null> {
   try {
     const relays = getRelays();
-    const event = await pool.get(relays, { ids: [id] });
-    return event || null;
+
+    // Add retry logic
+    let retries = 0;
+    const maxRetries = 3;
+
+    while (retries < maxRetries) {
+      try {
+        console.log(`Attempt ${retries + 1} to get event ${id}`);
+        const event = await pool.get(relays, { ids: [id] });
+        if (event) {
+          console.log(
+            `Successfully fetched event ${id} on attempt ${retries + 1}`
+          );
+          return event;
+        }
+        retries++;
+        // Wait a bit before retrying
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`Error on attempt ${retries + 1}:`, error);
+        retries++;
+        if (retries >= maxRetries) {
+          console.log('Max retries reached, returning null');
+          return null;
+        }
+        // Wait a bit before retrying
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    console.log(`Event ${id} not found after all retries`);
+    return null;
   } catch (error) {
     console.error('Failed to get event:', error);
     return null;
@@ -217,6 +320,50 @@ export async function createSignedEvent(
 
 // Publish an event to relays with better error handling and retry logic
 export async function publishEvent(event: Event): Promise<string[]> {
+  // Add retry logic
+  let retries = 0;
+  const maxRetries = 3;
+
+  while (retries < maxRetries) {
+    try {
+      console.log(`Attempt ${retries + 1} to publish event ${event.id}`);
+      const results = await attemptPublish(event);
+
+      // Count successful publishes
+      const successCount = results.filter(
+        (r) => !r.startsWith('failed:')
+      ).length;
+      console.log(
+        `Published to ${successCount}/${getRelays().length} relays on attempt ${
+          retries + 1
+        }`
+      );
+
+      if (successCount > 0) {
+        return results;
+      }
+
+      retries++;
+      // Wait a bit before retrying
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error) {
+      console.error(`Error on publish attempt ${retries + 1}:`, error);
+      retries++;
+      if (retries >= maxRetries) {
+        console.log('Max retries reached, returning empty array');
+        return [];
+      }
+      // Wait a bit before retrying
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  console.log('Failed to publish to any relay after all retries');
+  return [];
+}
+
+// Helper function to attempt publishing
+async function attemptPublish(event: Event): Promise<string[]> {
   try {
     const relays = getRelays();
     console.log(`Publishing event to relays: ${relays.join(', ')}`);
@@ -247,17 +394,7 @@ export async function publishEvent(event: Event): Promise<string[]> {
       });
     });
 
-    const results = await Promise.all(pubsWithTimeout);
-
-    // Count successful publishes
-    const successCount = results.filter((r) => !r.startsWith('failed:')).length;
-    console.log(`Published to ${successCount}/${relays.length} relays`);
-
-    if (successCount === 0) {
-      console.error('Failed to publish to any relay');
-    }
-
-    return results;
+    return await Promise.all(pubsWithTimeout);
   } catch (error) {
     console.error('Failed to publish event:', error);
     throw error;

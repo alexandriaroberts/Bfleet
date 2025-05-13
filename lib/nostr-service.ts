@@ -18,6 +18,11 @@ const RELAYS = [
   'wss://relay.snort.social',
   'wss://nostr.wine',
   'wss://relay.nostr.band',
+  'wss://relay.current.fyi',
+  'wss://nostr-pub.wellorder.net',
+  'wss://relay.nostr.bg',
+  'wss://nostr.bitcoiner.social',
+  'wss://relay.nostr.info',
 ];
 
 // Get relays from localStorage or use defaults
@@ -26,7 +31,8 @@ export function getRelays(): string[] {
     const storedRelays = localStorage.getItem('relays');
     if (storedRelays) {
       const parsedRelays = JSON.parse(storedRelays);
-      return Array.isArray(parsedRelays) && parsedRelays.length > 0
+      // Ensure we have at least 3 relays
+      return Array.isArray(parsedRelays) && parsedRelays.length >= 3
         ? parsedRelays
         : [...RELAYS];
     }
@@ -38,21 +44,22 @@ export function getRelays(): string[] {
 
 // Set available relays
 export function setRelays(relays: string[]): void {
-  localStorage.setItem('relays', JSON.stringify(relays));
+  // Ensure we have at least 3 relays
+  const validRelays = relays.length >= 3 ? relays : [...RELAYS];
+  localStorage.setItem('relays', JSON.stringify(validRelays));
 }
 
-// Check if a relay is responsive
+// Check if a relay is responsive with improved timeout handling
 export async function checkRelay(
   relay: string,
-  timeoutMs = 3000
+  timeoutMs = 5000
 ): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      // Detect Firefox for longer timeout
-      const isFirefox =
-        typeof navigator !== 'undefined' &&
-        navigator.userAgent.includes('Firefox');
-      const adjustedTimeout = isFirefox ? timeoutMs * 1.5 : timeoutMs;
+      // Detect browser for appropriate timeout
+      const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+      const isChrome = typeof navigator !== 'undefined' && navigator.userAgent.includes('Chrome');
+      const adjustedTimeout = isFirefox ? timeoutMs * 2 : isChrome ? timeoutMs * 1.5 : timeoutMs;
 
       const ws = new WebSocket(relay);
       const timeoutId = setTimeout(() => {

@@ -29,10 +29,20 @@ export default function Settings() {
     'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.snort.social',
-    'wss://nostr.wine',
     'wss://relay.nostr.band',
-    'wss://relay.current.fyi',
     'wss://nostr-pub.wellorder.net',
+    'wss://relay.nostr.bg',
+    'wss://nostr.bitcoiner.social',
+    'wss://nostr.onsats.org',
+    'wss://nostr.plebchain.org',
+    'wss://nostr.orangepill.dev',
+    'wss://nostr.zkid.social',
+    'wss://nostr.btcmp.com',
+    'wss://nostr.bitcoiner.social',
+    'wss://nostr.plebchain.org',
+    'wss://nostr.orangepill.dev',
+    'wss://nostr.zkid.social',
+    'wss://nostr.btcmp.com'
   ];
 
   useEffect(() => {

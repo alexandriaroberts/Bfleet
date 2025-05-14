@@ -124,17 +124,28 @@ export async function createPackage(
 
     // Try to create and sign the event with Nostr first
     try {
-      // Use simpler tags for better compatibility
+      // Add more specific tags for better event discovery
+      const tags = [
+        ['t', 'package'],
+        ['t', 'delivery'],
+        ['t', 'available'],
+        ['status', 'available'],
+        ['title', packageData.title],
+        ['pickup', packageData.pickupLocation],
+        ['destination', packageData.destination],
+        ['created_at', Math.floor(Date.now() / 1000).toString()],
+        ['expires_at', (Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60).toString()] // 30 days expiry
+      ];
+
       const event = await createSignedEvent(
         EVENT_KINDS.PACKAGE,
         JSON.stringify(content),
-        [['t', 'package']]
+        tags
       );
 
-      // Try to publish the event
-      await publishEvent(event);
-
-      console.log('Package created with ID:', event.id);
+      // Try to publish the event with increased retries
+      const results = await publishEvent(event);
+      console.log('Package published to relays:', results);
 
       // Save to localStorage with the same ID as Nostr to avoid duplicates
       const localPackage = {

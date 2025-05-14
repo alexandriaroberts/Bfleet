@@ -72,17 +72,34 @@ function CenterOnMe() {
   );
 }
 
-// Convert address to coordinates (simplified mock version)
-function getCoordinates(address: string): [number, number] {
-  // In a real app, you would use a geocoding service
-  // For this demo, we'll generate random coordinates
-  const hash = Array.from(address).reduce(
-    (acc, char) => acc + char.charCodeAt(0),
-    0
-  );
-  const randomLat = (hash % 180) - 90;
-  const randomLng = (hash % 360) - 180;
-  return [randomLat, randomLng];
+// Convert address to coordinates using OpenStreetMap Nominatim
+async function getCoordinates(address: string): Promise<[number, number]> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+        address
+      )}&limit=1`,
+      {
+        headers: {
+          'Accept-Language': 'en-US,en;q=0.9',
+          'User-Agent': 'Bfleet/1.0',
+        },
+      }
+    );
+
+    const data = await response.json();
+    
+    if (data && data.length > 0) {
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    }
+    
+    // Fallback to a default location if geocoding fails
+    console.warn(`Geocoding failed for address: ${address}`);
+    return [0, 0];
+  } catch (error) {
+    console.error('Error geocoding address:', error);
+    return [0, 0];
+  }
 }
 
 interface PackageData {
@@ -108,6 +125,8 @@ export default function PackageMap({
 }: PackageMapProps) {
   const router = useRouter();
   const [center, setCenter] = useState<[number, number]>([20, 0]);
+  const [packageCoordinates, setPackageCoordinates] = useState<Record<string, [number, number]>>({});
+  const [isLoading, setIsLoading] = useState(true);
 
   // Set initial center based on user's location
   useEffect(() => {
@@ -123,13 +142,32 @@ export default function PackageMap({
     }
   }, []);
 
+  // Geocode package locations
+  useEffect(() => {
+    const geocodePackages = async () => {
+      setIsLoading(true);
+      const newCoordinates: Record<string, [number, number]> = {};
+
+      for (const pkg of packages) {
+        if (!packageCoordinates[pkg.id]) {
+          const coords = await getCoordinates(pkg.pickupLocation);
+          newCoordinates[pkg.id] = coords;
+        }
+      }
+
+      setPackageCoordinates(prev => ({ ...prev, ...newCoordinates }));
+      setIsLoading(false);
+    };
+
+    geocodePackages();
+  }, [packages]);
+
   // Update center when selected package changes
   useEffect(() => {
-    if (selectedPackage) {
-      const coords = getCoordinates(selectedPackage.pickupLocation);
-      setCenter(coords);
+    if (selectedPackage && packageCoordinates[selectedPackage.id]) {
+      setCenter(packageCoordinates[selectedPackage.id]);
     }
-  }, [selectedPackage]);
+  }, [selectedPackage, packageCoordinates]);
 
   return (
     <div
@@ -147,10 +185,10 @@ export default function PackageMap({
           url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
         />
 
-        {packages
+        {!isLoading && packages
           .filter((pkg) => pkg.status === 'available')
           .map((pkg) => {
-            const coords = getCoordinates(pkg.pickupLocation);
+            const coords = packageCoordinates[pkg.id] || [0, 0];
             const isSelected = selectedPackage?.id === pkg.id;
             return (
               <Marker
@@ -190,6 +228,11 @@ export default function PackageMap({
         <RecenterMap lat={center[0]} lng={center[1]} />
         <CenterOnMe />
       </MapContainer>
+      {isLoading && (
+        <div className='absolute inset-0 bg-white/50 flex items-center justify-center'>
+          <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+        </div>
+      )}
     </div>
   );
 }

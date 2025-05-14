@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { NostrLogin } from '@/components/nostr-login';
+import { QuickStartGuide } from '@/components/quick-start-guide';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,16 +36,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className='min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12'>
-      <div className='w-full max-w-md'>
+    <div className='min-h-screen flex items-center justify-center  px-4 py-12 mt-16'>
+      <div className='w-full max-w-4xl'>
         {isLoggedIn ? (
           <div className='text-center'>
             <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4'></div>
             <p className='text-gray-600'>Already logged in. Redirecting...</p>
           </div>
         ) : (
-          <>
-            <div className='text-center mb-8'>
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-8'>
+            <div className='text-center md:text-left'>
               <div className='bg-gradient-to-r from-[#FF7170] to-[#FFE57F] rounded-full p-3 inline-flex mb-4'>
                 <svg
                   xmlns='http://www.w3.org/2000/svg'
@@ -66,12 +67,15 @@ export default function LoginPage() {
               <h1 className='text-3xl font-bold text-gray-900 mb-2'>
                 Login to A to ₿
               </h1>
-              <p className='text-gray-600'>
+              <p className='text-gray-600 mb-8'>
                 Connect with your existing Nostr account to continue
               </p>
+              <NostrLogin onLogin={handleLogin} />
             </div>
-            <NostrLogin onLogin={handleLogin} />
-          </>
+            <div>
+              <QuickStartGuide />
+            </div>
+          </div>
         )}
       </div>
     </div>

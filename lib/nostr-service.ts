@@ -134,49 +134,63 @@ export async function listEvents(
     console.log('Using default filter:', fixedFilter);
   }
 
-  // Add retry logic
+  // Add retry logic with increased timeout
   let retries = 0;
-  const maxRetries = 3;
+  const maxRetries = 5; // Increased from 3 to 5
+  const retryDelay = 1000; // Increased from 500 to 1000
 
   while (retries < maxRetries) {
     try {
       console.log(`Attempt ${retries + 1} to fetch events`);
-      const events = await fetchEventsWithTimeout(
-        relays,
-        fixedFilter,
-        timeoutMs
-      );
+      
+      // Try to fetch from each relay individually
+      const relayPromises = relays.map(async (relay) => {
+        try {
+          const events = await fetchEventsWithTimeout(
+            [relay],
+            fixedFilter,
+            timeoutMs * (retries + 1)
+          );
+          console.log(`Fetched ${events.length} events from ${relay}`);
+          return events;
+        } catch (error) {
+          console.error(`Error fetching from ${relay}:`, error);
+          return [];
+        }
+      });
 
-      // Filter out events that are likely not related to our application
-      // This helps avoid parsing errors with non-JSON content
+      const allEvents = await Promise.all(relayPromises);
+      const events = allEvents.flat();
+
+      // Less strict filtering - only check if content is a string
       const filteredEvents = events.filter((event) => {
-        // If we're looking for packages or deliveries, make sure the content looks like JSON
-        if (
-          (fixedFilter.kinds?.includes(EVENT_KINDS.PACKAGE) ||
-            fixedFilter.kinds?.includes(EVENT_KINDS.DELIVERY)) &&
-          typeof event.content === 'string'
-        ) {
-          const trimmedContent = event.content.trim();
-          return trimmedContent.startsWith('{') && trimmedContent.endsWith('}');
+        if (typeof event.content !== 'string') {
+          console.log(`Skipping event ${event.id} with non-string content`);
+          return false;
         }
         return true;
       });
 
-      console.log(
-        `Filtered ${events.length - filteredEvents.length} non-JSON events`
+      // Remove duplicates based on event ID
+      const uniqueEvents = Array.from(
+        new Map(filteredEvents.map(event => [event.id, event])).values()
       );
 
-      if (filteredEvents.length > 0) {
+      console.log(
+        `Filtered ${events.length - uniqueEvents.length} invalid/duplicate events`
+      );
+
+      if (uniqueEvents.length > 0) {
         console.log(
-          `Successfully fetched ${filteredEvents.length} events on attempt ${
+          `Successfully fetched ${uniqueEvents.length} unique events on attempt ${
             retries + 1
           }`
         );
-        return filteredEvents;
+        return uniqueEvents;
       }
       retries++;
-      // Wait a bit before retrying
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Wait longer before retrying
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
     } catch (error) {
       console.error(`Error on attempt ${retries + 1}:`, error);
       retries++;
@@ -184,8 +198,8 @@ export async function listEvents(
         console.log('Max retries reached, returning empty array');
         return [];
       }
-      // Wait a bit before retrying
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Wait longer before retrying
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
     }
   }
 

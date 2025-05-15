@@ -266,7 +266,7 @@ export default function MyDeliveries() {
                 <div className='text-center py-8 text-gray-500'>
                   <p>You have no active deliveries</p>
                   <p className='text-sm mt-2'>
-                    Pick up a package from the View Packages page
+                    Pick up a package from the View Map page
                   </p>
                 </div>
               ) : (

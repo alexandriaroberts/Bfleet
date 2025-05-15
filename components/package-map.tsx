@@ -73,8 +73,30 @@ function CenterOnMe() {
 }
 
 // Convert address to coordinates using OpenStreetMap Nominatim
-async function getCoordinates(address: string): Promise<[number, number]> {
+async function getCoordinates(address: string): Promise<[number, number] | null> {
   try {
+    // Check if input is already coordinates
+    const coordRegex = /^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$/;
+    const match = address.match(coordRegex);
+
+    if (match) {
+      const lat = Number.parseFloat(match[1]);
+      const lng = Number.parseFloat(match[2]);
+
+      // Validate coordinates
+      if (
+        !isNaN(lat) &&
+        !isNaN(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      ) {
+        return [lat, lng];
+      }
+    }
+
+    // If not coordinates, try geocoding
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
         address
@@ -93,12 +115,11 @@ async function getCoordinates(address: string): Promise<[number, number]> {
       return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
     }
     
-    // Fallback to a default location if geocoding fails
     console.warn(`Geocoding failed for address: ${address}`);
-    return [0, 0];
+    return null;
   } catch (error) {
     console.error('Error geocoding address:', error);
-    return [0, 0];
+    return null;
   }
 }
 
@@ -127,6 +148,7 @@ export default function PackageMap({
   const [center, setCenter] = useState<[number, number]>([20, 0]);
   const [packageCoordinates, setPackageCoordinates] = useState<Record<string, [number, number]>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [geocodingErrors, setGeocodingErrors] = useState<string[]>([]);
 
   // Set initial center based on user's location
   useEffect(() => {
@@ -137,6 +159,7 @@ export default function PackageMap({
         },
         () => {
           // If geolocation fails, keep default center
+          console.warn('Failed to get user location');
         }
       );
     }
@@ -147,15 +170,21 @@ export default function PackageMap({
     const geocodePackages = async () => {
       setIsLoading(true);
       const newCoordinates: Record<string, [number, number]> = {};
+      const errors: string[] = [];
 
       for (const pkg of packages) {
         if (!packageCoordinates[pkg.id]) {
           const coords = await getCoordinates(pkg.pickupLocation);
-          newCoordinates[pkg.id] = coords;
+          if (coords) {
+            newCoordinates[pkg.id] = coords;
+          } else {
+            errors.push(`Could not geocode address: ${pkg.pickupLocation}`);
+          }
         }
       }
 
       setPackageCoordinates(prev => ({ ...prev, ...newCoordinates }));
+      setGeocodingErrors(errors);
       setIsLoading(false);
     };
 
@@ -188,7 +217,9 @@ export default function PackageMap({
         {!isLoading && packages
           .filter((pkg) => pkg.status === 'available')
           .map((pkg) => {
-            const coords = packageCoordinates[pkg.id] || [0, 0];
+            const coords = packageCoordinates[pkg.id];
+            if (!coords) return null; // Skip packages without valid coordinates
+            
             const isSelected = selectedPackage?.id === pkg.id;
             return (
               <Marker
@@ -213,12 +244,6 @@ export default function PackageMap({
                       To: {pkg.destination}
                     </p>
                     <p className='text-xs font-medium mt-1'>{pkg.cost} sats</p>
-                    <button
-                      className='mt-2 text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600'
-                      onClick={() => router.push(`/package/${pkg.id}`)}
-                    >
-                      View Details
-                    </button>
                   </div>
                 </Popup>
               </Marker>
@@ -231,6 +256,16 @@ export default function PackageMap({
       {isLoading && (
         <div className='absolute inset-0 bg-white/50 flex items-center justify-center'>
           <div className='animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full'></div>
+        </div>
+      )}
+      {geocodingErrors.length > 0 && (
+        <div className='absolute top-2 left-2 right-2 bg-red-50 border border-red-200 rounded-md p-2 text-xs text-red-700'>
+          <p className='font-medium'>Some locations could not be mapped:</p>
+          <ul className='list-disc list-inside mt-1'>
+            {geocodingErrors.map((error, index) => (
+              <li key={index}>{error}</li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

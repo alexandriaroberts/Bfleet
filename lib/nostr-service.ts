@@ -339,87 +339,80 @@ export async function createSignedEvent(
   }
 }
 
-// Publish an event to relays with better error handling and retry logic
-export async function publishEvent(event: Event): Promise<string[]> {
-  // Add retry logic
-  let retries = 0;
-  const maxRetries = 3;
-
-  while (retries < maxRetries) {
+// Add retry mechanism for failed operations
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 1000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let i = 0; i < maxRetries; i++) {
     try {
-      console.log(`Attempt ${retries + 1} to publish event ${event.id}`);
-      const results = await attemptPublish(event);
-
-      // Count successful publishes
-      const successCount = results.filter(
-        (r) => !r.startsWith('failed:')
-      ).length;
-      console.log(
-        `Published to ${successCount}/${getRelays().length} relays on attempt ${
-          retries + 1
-        }`
-      );
-
-      if (successCount > 0) {
-        return results;
-      }
-
-      retries++;
-      // Wait a bit before retrying
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return await operation();
     } catch (error) {
-      console.error(`Error on publish attempt ${retries + 1}:`, error);
-      retries++;
-      if (retries >= maxRetries) {
-        console.log('Max retries reached, returning empty array');
-        return [];
+      lastError = error as Error;
+      console.warn(`Operation failed (attempt ${i + 1}/${maxRetries}):`, error);
+      if (i < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
       }
-      // Wait a bit before retrying
-      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
-
-  console.log('Failed to publish to any relay after all retries');
-  return [];
+  
+  throw lastError;
 }
 
-// Helper function to attempt publishing
-async function attemptPublish(event: Event): Promise<string[]> {
-  try {
-    const relays = getRelays();
-    console.log(`Publishing event to relays: ${relays.join(', ')}`);
-    console.log('Event:', event);
-
-    // Validate the event before publishing
-    if (!event.sig || typeof event.sig !== 'string') {
-      throw new Error('Event signature is missing or invalid');
-    }
-
-    // Try to publish to all relays
-    const pubs = pool.publish(relays, event);
-
-    // Add timeout to each publish promise
-    const pubsWithTimeout = pubs.map((pub, index) => {
-      const relay = relays[index];
-      return Promise.race([
-        pub.then(() => {
-          console.log(`✅ Successfully published to ${relay}`);
-          return relay;
-        }),
-        new Promise<string>((_, reject) => {
-          setTimeout(() => reject(new Error(`Relay timeout: ${relay}`)), 5000);
-        }),
-      ]).catch((err) => {
-        console.log(`❌ Failed to publish to ${relay}:`, err);
-        return `failed:${relay}`; // Return a string to keep the promise resolved
-      });
-    });
-
-    return await Promise.all(pubsWithTimeout);
-  } catch (error) {
-    console.error('Failed to publish event:', error);
-    throw error;
-  }
+// Update publishEvent to use retry mechanism
+export async function publishEvent(event: any): Promise<boolean[]> {
+  const relays = getRelays();
+  console.log(`Publishing event ${event.id} to ${relays.length} relays`);
+  
+  const results = await Promise.all(
+    relays.map(async (relay): Promise<boolean> => {
+      try {
+        return await retryOperation(async () => {
+          const ws = new WebSocket(relay);
+          
+          return new Promise<boolean>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              ws.close();
+              reject(new Error(`Timeout publishing to ${relay}`));
+            }, 5000);
+            
+            ws.onopen = () => {
+              ws.send(JSON.stringify(['EVENT', event]));
+              console.log(`Event ${event.id} sent to ${relay}`);
+            };
+            
+            ws.onmessage = (e) => {
+              const response = JSON.parse(e.data);
+              if (response[0] === 'OK' && response[1] === event.id) {
+                clearTimeout(timeout);
+                ws.close();
+                console.log(`Event ${event.id} confirmed by ${relay}`);
+                resolve(true);
+              }
+            };
+            
+            ws.onerror = (error) => {
+              clearTimeout(timeout);
+              ws.close();
+              console.error(`Error publishing to ${relay}:`, error);
+              reject(error);
+            };
+          });
+        });
+      } catch (error) {
+        console.error(`Failed to publish to ${relay}:`, error);
+        return false;
+      }
+    })
+  );
+  
+  const successCount = results.filter(Boolean).length;
+  console.log(`Event ${event.id} published to ${successCount}/${relays.length} relays`);
+  
+  return results;
 }
 
 // Close all connections

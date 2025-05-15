@@ -5,13 +5,62 @@ import type { PackageData } from './nostr-types';
 const PACKAGES_STORAGE_KEY = 'shared_packages_v1'; // Changed to shared key
 const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
 
+// Add backup storage keys
+const PACKAGES_BACKUP_KEY = 'shared_packages_backup_v1';
+const DELIVERIES_BACKUP_KEY = 'my_deliveries_backup_v2';
+
+// Backup current packages before any major operation
+function backupPackages(): void {
+  try {
+    const packages = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    const deliveries = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
+    
+    if (packages) {
+      localStorage.setItem(PACKAGES_BACKUP_KEY, packages);
+    }
+    if (deliveries) {
+      localStorage.setItem(DELIVERIES_BACKUP_KEY, deliveries);
+    }
+  } catch (error) {
+    console.error('Failed to backup packages:', error);
+  }
+}
+
+// Restore from backup if main storage is empty
+function restoreFromBackupIfNeeded(): void {
+  try {
+    const packages = localStorage.getItem(PACKAGES_STORAGE_KEY);
+    const deliveries = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
+    
+    if (!packages) {
+      const backup = localStorage.getItem(PACKAGES_BACKUP_KEY);
+      if (backup) {
+        localStorage.setItem(PACKAGES_STORAGE_KEY, backup);
+        console.log('Restored packages from backup');
+      }
+    }
+    
+    if (!deliveries) {
+      const backup = localStorage.getItem(DELIVERIES_BACKUP_KEY);
+      if (backup) {
+        localStorage.setItem(MY_DELIVERIES_STORAGE_KEY, backup);
+        console.log('Restored deliveries from backup');
+      }
+    }
+  } catch (error) {
+    console.error('Failed to restore from backup:', error);
+  }
+}
+
 // Get all available packages from local storage
 export function getLocalPackages(): PackageData[] {
   try {
+    restoreFromBackupIfNeeded();
     const packagesJson = localStorage.getItem(PACKAGES_STORAGE_KEY);
     if (!packagesJson) return [];
 
     const packages = JSON.parse(packagesJson) as PackageData[];
+    backupPackages(); // Backup after successful read
 
     // Filter out packages that have been picked up by the current user
     const myDeliveries = getMyLocalDeliveries();
@@ -90,10 +139,12 @@ export function deleteLocalPackage(packageId: string): void {
 // Get my deliveries from local storage
 export function getMyLocalDeliveries(): PackageData[] {
   try {
+    restoreFromBackupIfNeeded();
     const deliveriesJson = localStorage.getItem(MY_DELIVERIES_STORAGE_KEY);
     if (!deliveriesJson) return [];
 
     const deliveries = JSON.parse(deliveriesJson) as PackageData[];
+    backupPackages(); // Backup after successful read
 
     // Only return deliveries for the current user
     const currentPubkey = getUserPubkey();

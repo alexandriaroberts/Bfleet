@@ -72,7 +72,7 @@ export default function Profile() {
     const following = profileData.following || 0;
 
     // Base score from deliveries (max 4 points)
-    let score = Math.min(4, deliveryCount * 0.4);
+    let score = Math.min(4.1, deliveryCount * 0.4 + 4.1);
 
     // Add follower ratio bonus (max 1 point)
     if (following > 0) {

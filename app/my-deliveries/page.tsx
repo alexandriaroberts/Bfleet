@@ -20,19 +20,7 @@ import {
 import { useNostr } from '@/components/nostr-provider';
 import { QRCodeSVG } from 'qrcode.react';
 import { debugStorage } from '@/lib/local-package-service';
-
-interface PackageData {
-  id: string;
-  title: string;
-  pickupLocation: string;
-  destination: string;
-  cost: string;
-  description?: string;
-  status: 'available' | 'in_transit' | 'delivered';
-  pubkey?: string;
-  courier_pubkey?: string;
-  pickup_time?: number;
-}
+import { type PackageData } from '@/lib/nostr-types';
 
 export default function MyDeliveries() {
   const { isReady } = useNostr();

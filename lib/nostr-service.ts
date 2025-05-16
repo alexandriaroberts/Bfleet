@@ -1,4 +1,4 @@
-import { SimplePool, type Event, type Filter, nip19 } from 'nostr-tools';
+import { SimplePool, type Event as NostrEvent, type Filter, nip19 } from 'nostr-tools';
 
 // Initialize relay pool
 const pool = new SimplePool();
@@ -114,7 +114,7 @@ export async function getWorkingRelays(): Promise<string[]> {
 export async function listEvents(
   filters: Filter[],
   timeoutMs = 5000
-): Promise<Event[]> {
+): Promise<NostrEvent[]> {
   // Get only working relays
   const allRelays = getRelays();
   console.log(`Checking relays: ${allRelays.join(', ')}`);
@@ -212,9 +212,9 @@ async function fetchEventsWithTimeout(
   relays: string[],
   filter: Filter,
   timeoutMs: number
-): Promise<Event[]> {
+): Promise<NostrEvent[]> {
   return new Promise((resolve, reject) => {
-    const events: Event[] = [];
+    const events: NostrEvent[] = [];
     let timeoutId: NodeJS.Timeout;
 
     try {
@@ -265,7 +265,7 @@ async function fetchEventsWithTimeout(
 }
 
 // Get a specific event by ID with retry logic
-export async function getEventById(id: string): Promise<Event | null> {
+export async function getEventById(id: string): Promise<NostrEvent | null> {
   try {
     const relays = getRelays();
 
@@ -311,7 +311,7 @@ export async function createSignedEvent(
   kind: number,
   content: string,
   tags: string[][] = []
-): Promise<Event> {
+): Promise<NostrEvent> {
   if (!window.nostr) {
     throw new Error('Nostr extension not available');
   }
@@ -363,56 +363,29 @@ async function retryOperation<T>(
 }
 
 // Update publishEvent to use retry mechanism
-export async function publishEvent(event: any): Promise<boolean[]> {
-  const relays = getRelays();
-  console.log(`Publishing event ${event.id} to ${relays.length} relays`);
-  
-  const results = await Promise.all(
-    relays.map(async (relay): Promise<boolean> => {
-      try {
-        return await retryOperation(async () => {
-          const ws = new WebSocket(relay);
-          
-          return new Promise<boolean>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              ws.close();
-              reject(new Error(`Timeout publishing to ${relay}`));
-            }, 5000);
-            
-            ws.onopen = () => {
-              ws.send(JSON.stringify(['EVENT', event]));
-              console.log(`Event ${event.id} sent to ${relay}`);
-            };
-            
-            ws.onmessage = (e) => {
-              const response = JSON.parse(e.data);
-              if (response[0] === 'OK' && response[1] === event.id) {
-                clearTimeout(timeout);
-                ws.close();
-                console.log(`Event ${event.id} confirmed by ${relay}`);
-                resolve(true);
-              }
-            };
-            
-            ws.onerror = (error) => {
-              clearTimeout(timeout);
-              ws.close();
-              console.error(`Error publishing to ${relay}:`, error);
-              reject(error);
-            };
-          });
-        });
-      } catch (error) {
-        console.error(`Failed to publish to ${relay}:`, error);
-        return false;
-      }
-    })
-  );
-  
-  const successCount = results.filter(Boolean).length;
-  console.log(`Event ${event.id} published to ${successCount}/${relays.length} relays`);
-  
-  return results;
+export async function publishEvent(event: NostrEvent): Promise<string[]> {
+  try {
+    const relays = await getWorkingRelays();
+    if (relays.length === 0) {
+      throw new Error('No working relays available');
+    }
+
+    const results = await Promise.all(
+      relays.map(async (relay) => {
+        try {
+          await pool.publish([relay], event);
+          return 'ok';
+        } catch (error) {
+          return 'failed: ' + (error instanceof Error ? error.message : String(error));
+        }
+      })
+    );
+
+    return results;
+  } catch (error) {
+    console.error('Failed to publish event:', error);
+    return ['failed: ' + (error instanceof Error ? error.message : String(error))];
+  }
 }
 
 // Close all connections

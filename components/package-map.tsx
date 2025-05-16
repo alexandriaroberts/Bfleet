@@ -5,6 +5,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useRouter } from 'next/navigation';
+import { type PackageData } from '@/lib/nostr-types';
+import { getEffectiveStatus } from '@/lib/nostr';
 
 // Fix for default marker icons in Leaflet with Next.js
 const DefaultIcon = L.icon({
@@ -123,16 +125,6 @@ async function getCoordinates(address: string): Promise<[number, number] | null>
   }
 }
 
-interface PackageData {
-  id: string;
-  title: string;
-  pickupLocation: string;
-  destination: string;
-  cost: string;
-  description?: string;
-  status: string;
-}
-
 interface PackageMapProps {
   packages: PackageData[];
   onSelectPackage?: (pkg: PackageData) => void;
@@ -215,7 +207,7 @@ export default function PackageMap({
         />
 
         {!isLoading && packages
-          .filter((pkg) => pkg.status === 'available')
+          .filter((pkg) => getEffectiveStatus(pkg) === 'available')
           .map((pkg) => {
             const coords = packageCoordinates[pkg.id];
             if (!coords) return null; // Skip packages without valid coordinates

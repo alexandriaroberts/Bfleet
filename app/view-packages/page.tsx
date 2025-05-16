@@ -16,6 +16,7 @@ import {
   Settings,
   Truck,
   CheckCircle,
+  Clock,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -30,6 +31,7 @@ import dynamic from 'next/dynamic';
 import { NostrStatus } from '@/components/nostr-status';
 import { DebugPanel } from '@/components/debug-panel';
 import { Badge } from '@/components/ui/badge';
+import { type PackageData } from '@/lib/nostr-types';
 
 // Dynamically import the map component to avoid SSR issues
 const PackageMap = dynamic(() => import('@/components/package-map'), {
@@ -38,20 +40,6 @@ const PackageMap = dynamic(() => import('@/components/package-map'), {
     <div className='h-[400px] bg-gray-100 animate-pulse rounded-md'></div>
   ),
 });
-
-interface PackageData {
-  id: string;
-  title: string;
-  pickupLocation: string;
-  destination: string;
-  cost: string;
-  description?: string;
-  status: 'available' | 'in_transit' | 'delivered';
-  pubkey?: string;
-  courier_pubkey?: string;
-  pickup_time?: number;
-  delivery_time?: number;
-}
 
 export default function ViewPackages() {
   const { isReady, publicKey } = useNostr();
@@ -208,7 +196,7 @@ export default function ViewPackages() {
   // Filter packages based on view mode
   const filteredPackages =
     viewMode === 'all'
-      ? packages.filter((pkg) => pkg.status === 'available')
+      ? packages.filter((pkg) => getEffectiveStatus(pkg) === 'available')
       : packages.filter((pkg) => pkg.pubkey === publicKey);
 
   if (!isReady) {
@@ -363,6 +351,15 @@ export default function ViewPackages() {
                             >
                               <CheckCircle className='h-3 w-3 mr-1' />
                               Delivered
+                            </Badge>
+                          )}
+                          {getEffectiveStatus(pkg) === 'expired' && (
+                            <Badge
+                              variant='outline'
+                              className='bg-gray-50 text-gray-700 border-gray-200'
+                            >
+                              <Clock className='h-3 w-3 mr-1' />
+                              Expired
                             </Badge>
                           )}
                         </div>

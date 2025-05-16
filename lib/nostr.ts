@@ -3,7 +3,7 @@ import { EVENT_KINDS, type PackageData, type ProfileData } from './nostr-types';
 import {
   listEvents,
   createSignedEvent,
-  publishEvent,
+  publishEvent as publishNostrEvent,
   getEventById,
 } from './nostr-service';
 import {
@@ -17,6 +17,7 @@ import {
   getAllLocalDeliveries,
 } from './local-package-service';
 import { getRelays } from './nostr-service';
+import type { Event as NostrEvent } from 'nostr-tools';
 // Define storage keys directly (matching the ones in local-package-service.ts)
 const PACKAGES_STORAGE_KEY = 'shared_packages_v1';
 const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
@@ -113,13 +114,23 @@ function safeParseJSON(jsonString: string, fallback: any = null): any {
 
 // Fix the createPackage function to avoid duplicates
 export async function createPackage(
-  packageData: Omit<PackageData, 'id' | 'status'>
+  packageData: {
+    title: string;
+    pickupLocation: string;
+    destination: string;
+    cost: string;
+    description?: string;
+  }
 ): Promise<string> {
   try {
-    // Create the content object
-    const content = {
+    const now = Math.floor(Date.now() / 1000);
+    // Create the content object with all required fields
+    const content: PackageData = {
       ...packageData,
+      id: '', // Will be set by Nostr
       status: 'available',
+      pubkey: getUserPubkey(),
+      created_at: now,
     };
 
     // Try to create and sign the event with Nostr first
@@ -133,8 +144,8 @@ export async function createPackage(
         ['title', packageData.title],
         ['pickup', packageData.pickupLocation],
         ['destination', packageData.destination],
-        ['created_at', Math.floor(Date.now() / 1000).toString()],
-        ['expires_at', (Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60).toString()] // 30 days expiry
+        ['created_at', content.created_at.toString()],
+        ['expires_at', (content.created_at + 30 * 24 * 60 * 60).toString()] // 30 days expiry
       ];
 
       const event = await createSignedEvent(
@@ -144,16 +155,16 @@ export async function createPackage(
       );
 
       // Try to publish the event with increased retries
-      const results = await publishEvent(event);
+      const results = await publishNostrEvent(event);
       console.log('Package published to relays:', results);
 
+      // Count successful publishes
+      const successCount = results.filter((r) => r === 'ok').length;
+
       // Save to localStorage with the same ID as Nostr to avoid duplicates
-      const localPackage = {
-        ...packageData,
+      const localPackage: PackageData = {
+        ...content,
         id: event.id,
-        status: 'available' as const,
-        pubkey: getUserPubkey(),
-        created_at: Math.floor(Date.now() / 1000),
       };
 
       // Get existing packages
@@ -173,14 +184,20 @@ export async function createPackage(
         nostrError
       );
       // Fall back to localStorage only
-      const localId = saveLocalPackage(packageData);
+      const localId = saveLocalPackage({
+        ...packageData,
+        created_at: now,
+      });
       console.log('Package saved to localStorage with ID:', localId);
       return localId;
     }
   } catch (error) {
     console.error('Failed to create package:', error);
     // Last resort fallback
-    return saveLocalPackage(packageData);
+    return saveLocalPackage({
+      ...packageData,
+      created_at: Math.floor(Date.now() / 1000),
+    });
   }
 }
 
@@ -203,7 +220,7 @@ export async function deletePackage(packageId: string): Promise<void> {
       );
 
       // Publish the event
-      await publishEvent(event);
+      await publishNostrEvent(event);
 
       console.log('Package deletion event published to Nostr');
     } catch (nostrError) {
@@ -219,10 +236,17 @@ export async function deletePackage(packageId: string): Promise<void> {
   }
 }
 
+// Helper function to check if a package has expired
+function checkPackageExpiration(pkg: PackageData): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+  return now > (pkg.created_at + thirtyDaysInSeconds);
+}
+
 // Helper function to validate package status
-function validatePackageStatus(status: string): 'available' | 'in_transit' | 'delivered' {
-  if (status === 'available' || status === 'in_transit' || status === 'delivered') {
-    return status;
+function validatePackageStatus(status: string): 'available' | 'in_transit' | 'delivered' | 'expired' {
+  if (['available', 'in_transit', 'delivered', 'expired'].includes(status)) {
+    return status as 'available' | 'in_transit' | 'delivered' | 'expired';
   }
   return 'available'; // Default to available if invalid status
 }
@@ -693,7 +717,7 @@ export async function pickupPackage(packageId: string): Promise<void> {
       );
 
       // Publish the event
-      await publishEvent(event);
+      await publishNostrEvent(event);
 
       console.log('Package picked up successfully in Nostr');
     } catch (nostrError) {
@@ -797,7 +821,7 @@ export async function completeDelivery(packageId: string): Promise<void> {
         );
 
         // Try to publish to all relays
-        const results = await publishEvent(event);
+        const results = await publishNostrEvent(event);
         successCount = results.filter((r) => !r.startsWith('failed:')).length;
 
         if (successCount > 0) {
@@ -870,14 +894,14 @@ export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
 
     let name = 'bfleet_user';
     let displayName = 'Bfleet User';
-    let picture = '';
+    let picture = 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + userPubkey;
 
     if (metadataEvents.length > 0) {
       try {
         const metadata = JSON.parse(metadataEvents[0].content);
         name = metadata.name || name;
         displayName = metadata.display_name || metadata.displayName || name;
-        picture = metadata.picture || '';
+        picture = metadata.picture || picture;
       } catch (e) {
         console.error('Error parsing user metadata:', e);
       }
@@ -899,6 +923,7 @@ export async function getUserProfile(pubkey?: string): Promise<ProfileData> {
       pubkey: pubkey || getUserPubkey(),
       name: 'bfleet_user',
       displayName: 'Bfleet User',
+      picture: 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + (pubkey || getUserPubkey()),
       followers: 0,
       following: 0,
       deliveries: 0,
@@ -935,7 +960,7 @@ export async function updateProfile(profileData: {
     );
 
     // Publish the event
-    await publishEvent(event);
+    await publishNostrEvent(event);
 
     console.log('Profile updated successfully');
   } catch (error) {
@@ -947,69 +972,30 @@ export async function updateProfile(profileData: {
 // Status verification system
 export async function verifyPackageStatuses(): Promise<void> {
   try {
-    console.log('Starting package status verification...');
+    console.log('Verifying package statuses...');
 
-    // Get all local packages and deliveries
-    const localPackages = getLocalPackages();
-    const localDeliveries = getAllLocalDeliveries();
+    // Get all packages from localStorage
+    const packages = getLocalPackages();
+    console.log(`Found ${packages.length} packages to verify`);
 
-    console.log(
-      `Verifying ${localPackages.length} packages and ${localDeliveries.length} deliveries`
-    );
-
-    // Check Nostr for updates on these packages
-    const packageIds = [
-      ...localPackages.map((p) => p.id),
-      ...localDeliveries.map((d) => d.id),
-    ];
-
-    // Remove duplicates
-    const uniquePackageIds = [...new Set(packageIds)];
-    console.log(`Checking ${uniquePackageIds.length} unique package IDs`);
-
-    // Batch into groups of 10 to avoid overloading
-    for (let i = 0; i < uniquePackageIds.length; i += 10) {
-      const batch = uniquePackageIds.slice(i, i + 10);
-      console.log(`Processing batch ${i / 10 + 1}: ${batch.join(', ')}`);
-
-      // Query for delivery events for these packages
-      const events = await listEvents(
-        [
-          {
-            kinds: [EVENT_KINDS.DELIVERY],
-            '#package_id': batch,
-            limit: 50,
-          },
-        ],
-        5000
-      );
-
-      console.log(`Found ${events.length} delivery events for this batch`);
-
-      // Process events to update local status
-      for (const event of events) {
-        try {
-          const content = JSON.parse(event.content);
-          if (content.package_id && content.status) {
-            console.log(
-              `Found status update for package ${content.package_id}: ${content.status}`
-            );
-            // Update local storage with the latest status
-            updateLocalPackageStatus(
-              content.package_id,
-              content.status,
-              content
-            );
-          }
-        } catch (e) {
-          console.error('Error processing event:', e);
-        }
+    // Check each package's status
+    for (const pkg of packages) {
+      const effectiveStatus = getEffectiveStatus(pkg);
+      
+      // If the effective status is different from the stored status, update it
+      if (effectiveStatus !== pkg.status) {
+        console.log(`Updating package ${pkg.id} status from ${pkg.status} to ${effectiveStatus}`);
+        updateLocalPackageStatus(pkg.id, effectiveStatus, {
+          courier_pubkey: pkg.courier_pubkey,
+          pickup_time: pkg.pickup_time,
+          delivery_time: pkg.delivery_time,
+        });
       }
     }
 
     console.log('Package status verification complete');
   } catch (error) {
-    console.error('Failed to verify package statuses:', error);
+    console.error('Error verifying package statuses:', error);
   }
 }
 
@@ -1079,19 +1065,20 @@ function updateLocalPackageStatus(
 // Helper function to get the most accurate status of a package
 export function getEffectiveStatus(
   pkg: PackageData
-): 'available' | 'in_transit' | 'delivered' {
-  // If it has a delivery_time, it should be considered delivered regardless of status field
+): 'available' | 'in_transit' | 'delivered' | 'expired' {
+  // If it has a delivery_time, it's delivered
   if (pkg.delivery_time && pkg.delivery_time > 0) {
     return 'delivered';
   }
 
-  // If it has a pickup_time but no delivery_time, it should be in_transit
-  if (
-    pkg.pickup_time &&
-    pkg.pickup_time > 0 &&
-    (!pkg.delivery_time || pkg.delivery_time === 0)
-  ) {
+  // If it has a pickup_time but no delivery_time, it's in_transit
+  if (pkg.pickup_time && pkg.pickup_time > 0 && (!pkg.delivery_time || pkg.delivery_time === 0)) {
     return 'in_transit';
+  }
+
+  // Check expiration
+  if (checkPackageExpiration(pkg)) {
+    return 'expired';
   }
 
   // Otherwise use the status field
@@ -1233,5 +1220,33 @@ export async function forceStatusRefresh(): Promise<void> {
   } catch (error) {
     console.error('Error in forceStatusRefresh:', error);
     return Promise.reject(error);
+  }
+}
+
+// Publish event to relays
+export async function publishEvent(event: Event): Promise<string[]> {
+  try {
+    const relay = await getRelay();
+    if (!relay) {
+      throw new Error('No relay available');
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Publish timeout'));
+      }, 5000);
+
+      const results: string[] = [];
+      relay.publish(event, (result: string) => {
+        results.push(result);
+        if (results.length === 1) {
+          clearTimeout(timeout);
+          resolve(results);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Failed to publish event:', error);
+    return ['failed: ' + (error instanceof Error ? error.message : String(error))];
   }
 }

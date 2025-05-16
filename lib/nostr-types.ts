@@ -8,15 +8,18 @@ export const EVENT_KINDS = {
 
 // Package data interface
 export interface PackageData {
+  // Required fields
   id: string;
   title: string;
   pickupLocation: string;
   destination: string;
   cost: string;
-  description?: string;
-  status: 'available' | 'in_transit' | 'delivered';
   pubkey: string;
   created_at: number;
+  status: 'available' | 'in_transit' | 'delivered' | 'expired';
+
+  // Optional fields
+  description?: string;
   courier_pubkey?: string;
   pickup_time?: number;
   delivery_time?: number;
@@ -27,7 +30,7 @@ export interface ProfileData {
   pubkey: string;
   name: string;
   displayName: string;
-  picture?: string;
+  picture: string;
   followers: number;
   following: number;
   deliveries: number;

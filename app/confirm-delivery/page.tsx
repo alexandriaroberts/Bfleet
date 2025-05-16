@@ -14,19 +14,10 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, QrCode } from 'lucide-react';
 import Link from 'next/link';
-import { confirmDelivery, getPackageById } from '@/lib/nostr';
+import { confirmDelivery, getPackageById, getEffectiveStatus } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { QrScanner } from '@/components/qr-scanner';
-
-interface PackageData {
-  id: string;
-  title: string;
-  pickupLocation: string;
-  destination: string;
-  cost: string;
-  description?: string;
-  status: 'available' | 'in_transit' | 'delivered';
-}
+import { type PackageData } from '@/lib/nostr-types';
 
 export default function ConfirmDelivery() {
   const { isReady } = useNostr();
@@ -47,11 +38,16 @@ export default function ConfirmDelivery() {
       try {
         // Fetch package from Nostr
         const pkg = await getPackageById(id);
-        setPackageData(pkg);
+        if (pkg && getEffectiveStatus(pkg) === 'in_transit') {
+          setPackageData(pkg);
+        } else {
+          toast.error('Error', {
+            description: 'Package not found or not in transit.',
+          });
+        }
       } catch (error) {
         toast.error('Error', {
-          description:
-            'Failed to load package details. Invalid or expired QR code.',
+          description: 'Failed to load package details. Invalid or expired QR code.',
         });
         console.error('Error fetching package:', error);
       } finally {

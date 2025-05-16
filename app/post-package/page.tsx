@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { ArrowLeft, Package } from 'lucide-react';
 import Link from 'next/link';
-import { createPackage } from '@/lib/nostr';
+import { createPackage, getEffectiveStatus } from '@/lib/nostr';
 import { useNostr } from '@/components/nostr-provider';
 import { AddressInput } from '@/components/address-input';
 

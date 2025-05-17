@@ -18,6 +18,7 @@ import {
 } from './local-package-service';
 import { getRelays } from './nostr-service';
 import type { Event as NostrEvent } from 'nostr-tools';
+import { SimplePool } from 'nostr-tools';
 // Define storage keys directly (matching the ones in local-package-service.ts)
 const PACKAGES_STORAGE_KEY = 'shared_packages_v1';
 const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
@@ -251,8 +252,7 @@ function validatePackageStatus(status: string): 'available' | 'in_transit' | 'de
   return 'available'; // Default to available if invalid status
 }
 
-// Update the getPackages function to include packages created by the current user
-// regardless of their status (available, in_transit, delivered)
+// Update the getPackages function to ensure packages are visible to all users
 export async function getPackages(): Promise<PackageData[]> {
   try {
     console.log('Fetching packages from Nostr...');
@@ -265,14 +265,6 @@ export async function getPackages(): Promise<PackageData[]> {
     // Get all deliveries to track package status
     const allDeliveries = getAllLocalDeliveries();
     console.log(`Found ${allDeliveries.length} deliveries in localStorage`);
-
-    // Create a map of package IDs to their delivery status
-    const packageStatusMap = new Map<string, PackageData>();
-
-    // Add all deliveries to the map
-    allDeliveries.forEach((delivery) => {
-      packageStatusMap.set(delivery.id, delivery);
-    });
 
     try {
       // Use a simpler filter format for better compatibility
@@ -320,34 +312,6 @@ export async function getPackages(): Promise<PackageData[]> {
 
       console.log(`Found ${deliveryEvents.length} delivery events from Nostr`);
 
-      // Helper function to ensure package data is complete
-      function ensureCompletePackageData(pkg: Partial<PackageData>, defaultStatus: 'available' | 'in_transit' | 'delivered' = 'available'): PackageData {
-        // Validate required fields
-        if (!pkg.id || !pkg.title || !pkg.pickupLocation || !pkg.destination || !pkg.cost || !pkg.pubkey) {
-          throw new Error('Incomplete package data');
-        }
-
-        // Create a new package data object with validated fields
-        const validatedPackage: PackageData = {
-          id: pkg.id,
-          title: pkg.title,
-          pickupLocation: pkg.pickupLocation,
-          destination: pkg.destination,
-          cost: pkg.cost,
-          description: pkg.description || '',
-          status: validatePackageStatus(pkg.status || defaultStatus),
-          pubkey: pkg.pubkey,
-          created_at: pkg.created_at || Math.floor(Date.now() / 1000),
-        };
-
-        // Add optional fields if they exist
-        if (pkg.courier_pubkey) validatedPackage.courier_pubkey = pkg.courier_pubkey;
-        if (pkg.pickup_time) validatedPackage.pickup_time = pkg.pickup_time;
-        if (pkg.delivery_time) validatedPackage.delivery_time = pkg.delivery_time;
-
-        return validatedPackage;
-      }
-
       // Process delivery events to update package status
       for (const event of deliveryEvents) {
         try {
@@ -363,7 +327,7 @@ export async function getPackages(): Promise<PackageData[]> {
             const base = allPackages[packageIndex];
             const updatedPackage: Partial<PackageData> = {
               ...base,
-              id: base.id, // ensure string
+              id: base.id,
               status: validatePackageStatus(content.status),
               courier_pubkey: content.courier_pubkey,
               pickup_time: content.pickup_time,
@@ -371,55 +335,13 @@ export async function getPackages(): Promise<PackageData[]> {
             };
             allPackages[packageIndex] = ensureCompletePackageData(updatedPackage);
           }
-
-          // Also update the status map
-          if (packageStatusMap.has(content.package_id)) {
-            const existingDelivery = packageStatusMap.get(content.package_id)!;
-            const updatedDelivery: Partial<PackageData> = {
-              ...existingDelivery,
-              id: existingDelivery.id, // ensure string
-              status: validatePackageStatus(content.status),
-              courier_pubkey: content.courier_pubkey,
-              pickup_time: content.pickup_time,
-              delivery_time: content.delivery_time,
-            };
-            packageStatusMap.set(content.package_id, ensureCompletePackageData(updatedDelivery));
-          } else {
-            // If we don't have this delivery in our map yet, try to find the package
-            const pkg = allPackages.find((p) => p.id === content.package_id);
-            if (pkg) {
-              const newDelivery: Partial<PackageData> = {
-                ...pkg,
-                id: pkg.id, // ensure string
-                status: validatePackageStatus(content.status),
-                courier_pubkey: content.courier_pubkey,
-                pickup_time: content.pickup_time,
-                delivery_time: content.delivery_time,
-              };
-              packageStatusMap.set(content.package_id, ensureCompletePackageData(newDelivery, 'in_transit'));
-            }
-          }
         } catch (e) {
           console.error('Error processing delivery event:', e);
         }
       }
 
-      // Update package status based on the status map
-      for (let i = 0; i < allPackages.length; i++) {
-        const pkg = allPackages[i];
-        if (packageStatusMap.has(pkg.id)) {
-          const delivery = packageStatusMap.get(pkg.id)!;
-          const updatedPackage: Partial<PackageData> = {
-            ...pkg,
-            id: pkg.id, // ensure string
-            status: validatePackageStatus(delivery.status),
-            courier_pubkey: delivery.courier_pubkey,
-            pickup_time: delivery.pickup_time,
-            delivery_time: delivery.delivery_time,
-          };
-          allPackages[i] = ensureCompletePackageData(updatedPackage);
-        }
-      }
+      // Save all packages to localStorage for better synchronization
+      localStorage.setItem(PACKAGES_STORAGE_KEY, JSON.stringify(allPackages));
 
       // Filter packages:
       // 1. Include all packages with status "available"
@@ -449,21 +371,6 @@ export async function getPackages(): Promise<PackageData[]> {
           pkg.pubkey === currentPubkey ||
           pkg.courier_pubkey === currentPubkey
       );
-
-      // Update status based on deliveries
-      for (let i = 0; i < filteredLocalPackages.length; i++) {
-        const pkg = filteredLocalPackages[i];
-        if (packageStatusMap.has(pkg.id)) {
-          const delivery = packageStatusMap.get(pkg.id)!;
-          filteredLocalPackages[i] = {
-            ...pkg,
-            status: delivery.status,
-            courier_pubkey: delivery.courier_pubkey,
-            pickup_time: delivery.pickup_time,
-            delivery_time: delivery.delivery_time,
-          };
-        }
-      }
 
       return filteredLocalPackages;
     }
@@ -1223,28 +1130,57 @@ export async function forceStatusRefresh(): Promise<void> {
   }
 }
 
-// Publish event to relays
-export async function publishEvent(event: Event): Promise<string[]> {
+// Helper function to ensure package data is complete
+function ensureCompletePackageData(pkg: Partial<PackageData>, defaultStatus: 'available' | 'in_transit' | 'delivered' = 'available'): PackageData {
+  // Validate required fields
+  if (!pkg.id || !pkg.title || !pkg.pickupLocation || !pkg.destination || !pkg.cost || !pkg.pubkey) {
+    throw new Error('Incomplete package data');
+  }
+
+  // Create a new package data object with validated fields
+  const validatedPackage: PackageData = {
+    id: pkg.id,
+    title: pkg.title,
+    pickupLocation: pkg.pickupLocation,
+    destination: pkg.destination,
+    cost: pkg.cost,
+    description: pkg.description || '',
+    status: validatePackageStatus(pkg.status || defaultStatus),
+    pubkey: pkg.pubkey,
+    created_at: pkg.created_at || Math.floor(Date.now() / 1000),
+  };
+
+  // Add optional fields if they exist
+  if (pkg.courier_pubkey) validatedPackage.courier_pubkey = pkg.courier_pubkey;
+  if (pkg.pickup_time) validatedPackage.pickup_time = pkg.pickup_time;
+  if (pkg.delivery_time) validatedPackage.delivery_time = pkg.delivery_time;
+
+  return validatedPackage;
+}
+
+// Update the publishEvent function to use proper types and Promise handling
+export async function publishEvent(event: NostrEvent): Promise<string[]> {
   try {
-    const relay = await getRelay();
-    if (!relay) {
-      throw new Error('No relay available');
+    const relays = getRelays();
+    if (relays.length === 0) {
+      throw new Error('No relays available');
     }
 
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Publish timeout'));
-      }, 5000);
+    const pool = new SimplePool();
+    const results: string[] = [];
+    
+    // Publish to all relays in parallel
+    const publishPromises = relays.map(relay => 
+      pool.publish([relay], event)
+        .then(() => 'ok')
+        .catch((error: Error) => 'failed: ' + error.message)
+    );
 
-      const results: string[] = [];
-      relay.publish(event, (result: string) => {
-        results.push(result);
-        if (results.length === 1) {
-          clearTimeout(timeout);
-          resolve(results);
-        }
-      });
-    });
+    // Wait for all publishes to complete
+    const publishResults = await Promise.all(publishPromises);
+    results.push(...publishResults);
+
+    return results;
   } catch (error) {
     console.error('Failed to publish event:', error);
     return ['failed: ' + (error instanceof Error ? error.message : String(error))];

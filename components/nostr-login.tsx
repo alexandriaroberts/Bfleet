@@ -10,8 +10,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Key, AlertCircle, ExternalLink } from 'lucide-react';
+import { Key, AlertCircle, ExternalLink, Lock } from 'lucide-react';
+import { getPublicKeyFromPrivateKey } from '@/lib/nostr-keys';
 
 interface NostrLoginProps {
   onLogin: (publicKey: string) => void;
@@ -22,6 +25,7 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
   const [loading, setLoading] = useState(false);
   const [hasExtension, setHasExtension] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [nsec, setNsec] = useState('');
 
   // Check if browser extension is available - only on client side
   useEffect(() => {
@@ -56,6 +60,39 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
       toast.error('Login Failed', {
         description:
           'Could not connect to your Nostr extension. Please try again.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNsecLogin = async () => {
+    setLoading(true);
+    try {
+      if (!nsec) {
+        throw new Error('Please enter your nsec');
+      }
+
+      // Get public key from private key
+      const publicKey = getPublicKeyFromPrivateKey(nsec);
+      
+      if (!publicKey) {
+        throw new Error('Invalid nsec');
+      }
+
+      // Store both keys in localStorage
+      localStorage.setItem('nostr_pubkey', publicKey);
+      localStorage.setItem('nostr_privkey', nsec);
+
+      toast.success('Successfully logged in with nsec', {
+        description: 'You are now logged in with your nsec',
+      });
+
+      onLogin(publicKey);
+    } catch (error) {
+      console.error('Nsec login error:', error);
+      toast.error('Login Failed', {
+        description: 'Invalid nsec. Please check and try again.',
       });
     } finally {
       setLoading(false);
@@ -116,6 +153,41 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
             Connect with Extension
           </Button>
         )}
+
+        <div className='relative'>
+          <div className='absolute inset-0 flex items-center'>
+            <span className='w-full border-t border-gray-200' />
+          </div>
+          <div className='relative flex justify-center text-xs uppercase'>
+            <span className='bg-white px-2 text-gray-500'>Or</span>
+          </div>
+        </div>
+
+        <div className='space-y-4'>
+          <div className='space-y-2'>
+            <Label htmlFor='nsec'>Enter your nsec</Label>
+            <Input
+              id='nsec'
+              type='password'
+              placeholder='nsec1...'
+              value={nsec}
+              onChange={(e) => setNsec(e.target.value)}
+              className='font-mono'
+            />
+          </div>
+          <Button
+            onClick={handleNsecLogin}
+            className='w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FF7170] to-[#FFE57F] text-white'
+            disabled={loading || !nsec}
+          >
+            {loading ? (
+              <span className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full'></span>
+            ) : (
+              <Lock className='h-4 w-4' />
+            )}
+            Login with nsec
+          </Button>
+        </div>
 
         {!hasExtension && (
           <div className='bg-amber-50 border border-amber-200 rounded-md p-4 text-amber-800 text-sm'>

@@ -73,8 +73,11 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
         throw new Error('Please enter your nsec');
       }
 
+      // Clean the nsec input by trimming whitespace and newlines
+      const cleanNsec = nsec.trim().replace(/\s+/g, '');
+
       // Get public key from private key
-      const publicKey = getPublicKeyFromPrivateKey(nsec);
+      const publicKey = getPublicKeyFromPrivateKey(cleanNsec);
       
       if (!publicKey) {
         throw new Error('Invalid nsec');
@@ -82,7 +85,7 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
 
       // Store both keys in localStorage
       localStorage.setItem('nostr_pubkey', publicKey);
-      localStorage.setItem('nostr_privkey', nsec);
+      localStorage.setItem('nostr_privkey', cleanNsec);
 
       toast.success('Successfully logged in with nsec', {
         description: 'You are now logged in with your nsec',

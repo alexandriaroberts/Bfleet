@@ -48,11 +48,12 @@ export function getPublicKeyFromPrivateKey(nsec: string): string {
   try {
     // If it's a bech32 encoded nsec, decode it first
     if (nsec.startsWith('nsec1')) {
-      const { data } = nip19.decode(nsec);
-      if (typeof data === 'string') {
-        return getPublicKey(hexToUint8Array(data));
+      const { type, data } = nip19.decode(nsec);
+      if (type !== 'nsec') {
+        throw new Error('Invalid nsec format');
       }
-      throw new Error('Invalid nsec format');
+      // The data is already a Uint8Array for nsec
+      return getPublicKey(data as Uint8Array);
     }
     // Otherwise assume it's a hex private key
     return getPublicKey(hexToUint8Array(nsec));

@@ -10,8 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Key, AlertCircle, ExternalLink } from 'lucide-react';
+import { nip19, getPublicKey } from 'nostr-tools';
 
 interface NostrLoginProps {
   onLogin: (publicKey: string) => void;
@@ -22,6 +24,7 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
   const [loading, setLoading] = useState(false);
   const [hasExtension, setHasExtension] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [nsecKey, setNsecKey] = useState('');
 
   // Check if browser extension is available - only on client side
   useEffect(() => {
@@ -56,6 +59,71 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
       toast.error('Login Failed', {
         description:
           'Could not connect to your Nostr extension. Please try again.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNsecLogin = async () => {
+    setLoading(true);
+    try {
+      if (!nsecKey) {
+        throw new Error('Please enter your nsec key');
+      }
+
+      // Trim whitespace from the nsec key
+      const trimmedNsec = nsecKey.trim();
+      console.log('Attempting to decode nsec key:', trimmedNsec);
+
+      // Basic validation of nsec format
+      if (!trimmedNsec.startsWith('nsec1')) {
+        throw new Error('Invalid nsec key format - must start with nsec1');
+      }
+
+      try {
+        // Decode the nsec key
+        console.log('Calling nip19.decode...');
+        const decoded = nip19.decode(trimmedNsec);
+        console.log('Decoded result:', decoded);
+        
+        const { type, data } = decoded;
+        if (type !== 'nsec' || !(data instanceof Uint8Array)) {
+          throw new Error('Invalid nsec key format');
+        }
+
+        // Get the public key directly from the Uint8Array
+        const publicKey = getPublicKey(data);
+        console.log('Generated public key:', publicKey);
+
+        // Convert Uint8Array to hex string for storage
+        const privateKey = Array.from(data)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+
+        // Store both keys in localStorage
+        localStorage.setItem('nostr_pubkey', publicKey);
+        localStorage.setItem('nostr_privkey', privateKey);
+
+        toast.success('Successfully logged in with nsec', {
+          description: 'You are now logged in with your nsec key',
+        });
+
+        onLogin(publicKey);
+      } catch (decodeError) {
+        console.error('Detailed decode error:', decodeError);
+        if (decodeError instanceof Error) {
+          if (decodeError.message.includes('checksum')) {
+            throw new Error('Invalid nsec key - please check for any extra characters or spaces');
+          }
+          throw new Error(`Decode error: ${decodeError.message}`);
+        }
+        throw decodeError;
+      }
+    } catch (error) {
+      console.error('Nsec login error:', error);
+      toast.error('Login Failed', {
+        description: error instanceof Error ? error.message : 'Invalid nsec key',
       });
     } finally {
       setLoading(false);
@@ -116,6 +184,37 @@ export function NostrLogin({ onLogin, onCancel }: NostrLoginProps) {
             Connect with Extension
           </Button>
         )}
+
+        <div className='relative'>
+          <div className='absolute inset-0 flex items-center'>
+            <span className='w-full border-t border-gray-200' />
+          </div>
+          <div className='relative flex justify-center text-xs uppercase'>
+            <span className='bg-white px-2 text-gray-500'>Or</span>
+          </div>
+        </div>
+
+        <div className='space-y-4'>
+          <Input
+            type='password'
+            placeholder='Enter your nsec key'
+            value={nsecKey}
+            onChange={(e) => setNsecKey(e.target.value)}
+            className='w-full'
+          />
+          <Button
+            onClick={handleNsecLogin}
+            className='w-full flex items-center justify-center gap-2 bg-gray-50'
+            disabled={loading || !nsecKey}
+          >
+            {loading ? (
+              <span className='animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full'></span>
+            ) : (
+              <Key className='h-4 w-4' />
+            )}
+            Login with nsec
+          </Button>
+        </div>
 
         {!hasExtension && (
           <div className='bg-amber-50 border border-amber-200 rounded-md p-4 text-amber-800 text-sm'>

@@ -18,6 +18,7 @@ import {
 } from './local-package-service';
 import { getRelays } from './nostr-service';
 import type { Event as NostrEvent } from 'nostr-tools';
+import { SimplePool } from 'nostr-tools';
 // Define storage keys directly (matching the ones in local-package-service.ts)
 const PACKAGES_STORAGE_KEY = 'shared_packages_v1';
 const MY_DELIVERIES_STORAGE_KEY = 'my_deliveries_v2';
@@ -426,10 +427,18 @@ export async function getPackages(): Promise<PackageData[]> {
       // 2. Include packages created by the current user regardless of status
       // 3. Include packages where the current user is the courier
       const filteredPackages = allPackages.filter(
-        (pkg) =>
-          pkg.status === 'available' ||
-          pkg.pubkey === currentPubkey ||
-          pkg.courier_pubkey === currentPubkey
+        (pkg) => {
+          // Always show available packages
+          if (pkg.status === 'available') return true;
+          
+          // Show user's own packages regardless of status
+          if (pkg.pubkey === currentPubkey) return true;
+          
+          // Show packages where user is the courier
+          if (pkg.courier_pubkey === currentPubkey) return true;
+          
+          return false;
+        }
       );
 
       console.log(
@@ -1226,9 +1235,9 @@ export async function forceStatusRefresh(): Promise<void> {
 // Publish event to relays
 export async function publishEvent(event: Event): Promise<string[]> {
   try {
-    const relay = await getRelay();
-    if (!relay) {
-      throw new Error('No relay available');
+    const relays = getRelays();
+    if (relays.length === 0) {
+      throw new Error('No relays available');
     }
 
     return new Promise((resolve, reject) => {
@@ -1236,14 +1245,26 @@ export async function publishEvent(event: Event): Promise<string[]> {
         reject(new Error('Publish timeout'));
       }, 5000);
 
-      const results: string[] = [];
-      relay.publish(event, (result: string) => {
-        results.push(result);
-        if (results.length === 1) {
-          clearTimeout(timeout);
-          resolve(results);
+      const pool = new SimplePool();
+      
+      const publishPromises = relays.map(async (relay) => {
+        try {
+          await pool.publish([relay], event as any);
+          return 'ok';
+        } catch (error) {
+          return 'failed: ' + (error instanceof Error ? error.message : String(error));
         }
       });
+
+      Promise.all(publishPromises)
+        .then(publishResults => {
+          clearTimeout(timeout);
+          resolve(publishResults);
+        })
+        .catch((error: Error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
     });
   } catch (error) {
     console.error('Failed to publish event:', error);

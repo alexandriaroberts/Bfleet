@@ -136,8 +136,8 @@ export async function listEvents(
 
   // Add retry logic with increased timeout
   let retries = 0;
-  const maxRetries = 5; // Increased from 3 to 5
-  const retryDelay = 1000; // Increased from 500 to 1000
+  const maxRetries = 5;
+  const retryDelay = 1000;
 
   while (retries < maxRetries) {
     try {
@@ -198,68 +198,45 @@ export async function listEvents(
         console.log('Max retries reached, returning empty array');
         return [];
       }
-      // Wait longer before retrying
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
     }
   }
 
-  console.log('No events found after all retries');
   return [];
 }
 
-// Helper function to fetch events with a timeout
+// Helper function to fetch events with timeout
 async function fetchEventsWithTimeout(
   relays: string[],
   filter: Filter,
   timeoutMs: number
 ): Promise<NostrEvent[]> {
   return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Fetch timeout'));
+    }, timeoutMs);
+
     const events: NostrEvent[] = [];
-    let timeoutId: NodeJS.Timeout;
+    const seen = new Set<string>();
 
     try {
-      // Set up a timeout to resolve after a certain time
-      timeoutId = setTimeout(() => {
-        console.log(
-          `Timeout reached after ${timeoutMs}ms, returning ${events.length} events`
-        );
-        resolve(events);
-      }, timeoutMs);
+      const sub = pool.subscribe(relays, filter, {
+        onevent: (event: NostrEvent) => {
+          if (!seen.has(event.id)) {
+            seen.add(event.id);
+            events.push(event);
+          }
+        },
+        oneose: () => {
+          clearTimeout(timeoutId);
+          resolve(events);
+        }
+      });
 
-      // Try different methods based on what's available in the nostr-tools version
-      try {
-        console.log('Fetching events with pool.get...');
-        // Method 1: Try using get (most compatible)
-        pool
-          .get(relays, filter)
-          .then((foundEvents) => {
-            console.log('pool.get returned:', foundEvents ? 'data' : 'null');
-            if (foundEvents) {
-              if (Array.isArray(foundEvents)) {
-                console.log(`Found ${foundEvents.length} events`);
-                events.push(...foundEvents);
-              } else {
-                console.log('Found a single event');
-                events.push(foundEvents);
-              }
-            }
-            clearTimeout(timeoutId);
-            resolve(events);
-          })
-          .catch((error) => {
-            console.error('Error using pool.get:', error);
-            clearTimeout(timeoutId);
-            reject(error);
-          });
-      } catch (error) {
-        console.error('Error in fetchEventsWithTimeout:', error);
-        clearTimeout(timeoutId);
-        reject(error);
-      }
+      // The timeout will automatically reject the promise if it takes too long
     } catch (error) {
-      console.error('Error in fetchEventsWithTimeout:', error);
-      clearTimeout(timeoutId!);
-      reject(error);
+      clearTimeout(timeoutId);
+      reject(error instanceof Error ? error : new Error('Unknown error'));
     }
   });
 }

@@ -1,4 +1,4 @@
-import { SimplePool, type Event as NostrEvent, type Filter, nip19 } from 'nostr-tools';
+import { SimplePool, type Event as NostrEvent, type Filter, nip19, getEventHash, getPublicKey, nip04 } from 'nostr-tools';
 
 // Initialize relay pool
 const pool = new SimplePool();
@@ -306,17 +306,17 @@ export async function getEventById(id: string): Promise<NostrEvent | null> {
   }
 }
 
-// Create and sign an event with the Nostr extension
+// Create and sign an event with either the Nostr extension or nsec key
 export async function createSignedEvent(
   kind: number,
   content: string,
   tags: string[][] = []
 ): Promise<NostrEvent> {
-  if (!window.nostr) {
-    throw new Error('Nostr extension not available');
+  // Get the public key
+  const pubkey = localStorage.getItem('nostr_pubkey');
+  if (!pubkey) {
+    throw new Error('No public key found');
   }
-
-  const pubkey = await window.nostr.getPublicKey();
 
   // Create the event without id and sig
   const event = {
@@ -325,16 +325,45 @@ export async function createSignedEvent(
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content,
-    id: '', // Will be set by the extension
-    sig: '', // Will be set by the extension
+    id: '', // Will be set by signing
+    sig: '', // Will be set by signing
   };
 
   try {
-    // Use the extension to sign the event
-    const signedEvent = await window.nostr.signEvent(event);
-    return signedEvent;
+    // First try using the extension if available
+    if (window.nostr) {
+      try {
+        const signedEvent = await window.nostr.signEvent(event);
+        return signedEvent;
+      } catch (extensionError) {
+        console.warn('Extension signing failed, falling back to nsec:', extensionError);
+      }
+    }
+
+    // Fall back to nsec-based signing
+    const privateKey = localStorage.getItem('nostr_privkey');
+    if (!privateKey) {
+      throw new Error('No private key found for signing');
+    }
+
+    // Get the event hash
+    event.id = getEventHash(event);
+    
+    // Convert hex private key to Uint8Array
+    const privateKeyBytes = new Uint8Array(
+      privateKey.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []
+    );
+
+    // Sign the event using the private key
+    const { schnorr } = await import('@noble/curves/secp256k1');
+    const signature = schnorr.sign(event.id, privateKeyBytes);
+    event.sig = Array.from(signature)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    return event;
   } catch (error) {
-    console.error('Failed to sign event with extension:', error);
+    console.error('Failed to sign event:', error);
     throw error;
   }
 }

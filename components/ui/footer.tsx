@@ -22,7 +22,7 @@ export function Footer() {
                 className='text-[#FF7170] hover:text-[#000] transition-colors'
               >
                 Alexandria Roberts
-              </a>
+              </a>{' '}
               for atob.
             </p>
             <p className='text-gray-500 text-sm'>
